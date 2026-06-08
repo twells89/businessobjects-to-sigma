@@ -1,0 +1,14 @@
+{
+  "name": "businessobjects-to-sigma",
+  "version": "0.1.0",
+  "description": "Migrate SAP BusinessObjects universes and Web Intelligence documents to Sigma Computing data models and workbooks.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "test": "node test/smoke.mjs",
+    "discover": "node scripts/discover.mjs",
+    "migrate:universe": "node scripts/migrate-universe.mjs",
+    "migrate:webi": "node scripts/migrate-webi.mjs"
+  },
+  "engines": { "node": ">=18" }
+}

@@ -1,0 +1,28 @@
+{
+  "document": {
+    "name": "Retail Performance",
+    "reports": [
+      {
+        "name": "Revenue Overview",
+        "blocks": [
+          { "kind": "Cell", "title": "Total Net Revenue", "measures": ["Net Revenue"] },
+          { "kind": "Cell", "title": "Orders", "measures": ["Order Count"] },
+          { "kind": "VerticalBarChart", "title": "Net Revenue by Region",
+            "dimensions": ["Customer Region"], "measures": ["Net Revenue"] },
+          { "kind": "LineChart", "title": "Revenue by Channel",
+            "dimensions": ["Order Channel"], "measures": ["Net Revenue", "Gross Revenue"] },
+          { "kind": "VTable", "title": "Detail",
+            "dimensions": ["Order Channel", "Order Status"], "measures": ["Net Revenue"] }
+        ]
+      },
+      {
+        "name": "Segment Crosstab",
+        "blocks": [
+          { "kind": "CrossTab", "title": "Region x Segment",
+            "rows": ["Customer Region"], "cols": ["Customer Segment"], "measures": ["Net Revenue"] }
+        ]
+      }
+    ],
+    "filters": [ { "name": "Order Status", "expression": "ORDER_FACT.ORDER_STATUS = 'Completed'" } ]
+  }
+}
