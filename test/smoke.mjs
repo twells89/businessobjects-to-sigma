@@ -27,6 +27,23 @@ check((fact?.relationships || []).some(r => r.name === 'CUSTOMER_DIM' && r.keys.
 const view = els.find(e => /View$/.test(e.name));
 check(!!view && view.columns.some(c => c.formula === '[Order Fact/CUSTOMER_DIM/Customer Region]'), 'universe: View has cross-element [.../CUSTOMER_DIM/Customer Region]');
 
+// ── Universe → data model WITH target-layer remap (restructured / platinum) ──
+const remapped = convertBobjToSigma(read('fixtures/efashion_universe.json'), {
+  connectionId: 'conn', database: 'CSA',
+  tableMap: { ORDER_FACT: { table: 'FCT_ORDERS', schema: 'PLATINUM' }, CUSTOMER_DIM: { table: 'DIM_CUST', schema: 'PLATINUM' } },
+  columnMap: { 'ORDER_FACT.NET_REVENUE': 'NET_REV', '*.REGION': 'SALES_REGION' },
+});
+const rEls = remapped.model.pages[0].elements;
+const rFact = rEls.find(e => (e.source?.path || []).slice(-1)[0] === 'FCT_ORDERS');
+check(!!rFact, 'remap: ORDER_FACT element repointed to FCT_ORDERS');
+check((rFact?.source?.path || []).includes('PLATINUM'), 'remap: per-table schema relocation → path includes PLATINUM');
+check((rFact?.metrics || []).some(m => /Sum\(\[Net Rev\]\)/.test(m.formula)), 'remap: NET_REVENUE column renamed → Sum([Net Rev])');
+check(rEls.some(e => (e.relationships || []).some(r => r.name === 'DIM_CUST')), 'remap: join repointed → relationship name DIM_CUST');
+check(remapped.warnings.some(w => /remap applied/i.test(w)), 'remap: applied-summary warning surfaced');
+// A bad map key must be surfaced, not silently ignored.
+const remapTypo = convertBobjToSigma(read('fixtures/efashion_universe.json'), { connectionId: 'conn', tableMap: { NOPE_TABLE: 'WHATEVER' } });
+check(remapTypo.warnings.some(w => /matched no universe table/.test(w)), 'remap: unmatched tableMap key warns (typo guard)');
+
 // ── Webi → workbook ──────────────────────────────────────────────────────────
 const measureMap = {};
 for (const e of els) for (const m of (e.metrics || [])) measureMap[m.name] = m.formula;
