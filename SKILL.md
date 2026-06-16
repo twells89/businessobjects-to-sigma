@@ -34,6 +34,40 @@ node scripts/migrate-universe.mjs <universeId>
 ```
 Fetches the universe, converts it (tables→elements, dimensions/details→columns with business names, measures→metrics, joins→relationships with FK keys parsed from the join SQL, predefined filters + `@`-functions→warnings), POSTs the data model, and records the binding (data-model id + denormalized **View** element + measure formulas) in `.bo-state.json`.
 
+**Phase 2a — Target-layer remapping** (ALWAYS ask first; skip only if the answer is "no")
+
+The universe references the *old* physical table/column names. If the customer is **not** doing a like-for-like migration — they've restructured the warehouse (renamed tables, or consolidated several dimensions into one, e.g. a "platinum"/gold layer) — those names won't resolve against the new layer, and the converted model binds to tables that no longer exist. So before running Phase 2, **ask the user**:
+
+> "Has the warehouse been restructured relative to this universe — tables renamed, or dimensions consolidated (e.g. a platinum/gold layer)? Or does it still match the universe's original tables?"
+
+- **No / it matches** → run Phase 2 as-is.
+- **Yes, it was restructured** → build a remap and pass it with `--remap`:
+  1. **List the universe's old physical names.** Run `node scripts/migrate-universe.mjs <id>` once (or convert offline) and read the element/column names — those are the old `TABLE` / `COL` tokens the remap is keyed on. The converter also warns on anything that doesn't resolve.
+  2. **Get the new names.** Either (a) the user hands you the mapping / a list of the new platinum tables and columns, or (b) introspect the target Sigma connection — list its tables (`GET /v2/connections/{id}/inodes` / schema browse) and a table's columns (`GET /v2/connections/tables/{inodeId}/columns`) — then propose a best-guess mapping (match by normalized name) and **ask the user to confirm or correct it**. Don't silently guess; surface the proposed pairs and let them edit.
+  3. **Write `remap.json`** and run:
+     ```
+     node scripts/migrate-universe.mjs <universeId> --remap remap.json
+     ```
+     ```json
+     {
+       "tableMap": {
+         "CUSTOMER_DIM_DE": { "table": "DIM_CUSTOMER", "schema": "PLATINUM" },
+         "CUSTOMER_DIM_AT": "DIM_CUSTOMER",
+         "CUSTOMER_DIM_CH": "DIM_CUSTOMER"
+       },
+       "columnMap": {
+         "CUSTOMER_DIM_DE.CUST_NAME": "CUSTOMER_NAME",
+         "*.REGION": "SALES_REGION"
+       }
+     }
+     ```
+     `tableMap` values are a new table name or `{ table, database?, schema? }` to also relocate it; **many old tables may map to one** (consolidation — they collapse into a single element). `columnMap` keys are `"OLD_TABLE.OLD_COL"` (or `"*.OLD_COL"` for any table); business names are preserved, only the physical column underneath is repointed.
+  4. **Re-run is cheap** — review the converter warnings: a summary line reports how many tables/columns were repointed and consolidated, and any `Remap: … matched no universe table/column` warning means a key typo (the old name didn't exist). Iterate until those are gone, then verify in Phase 4.
+
+> The remap repoints **names**; it does not do the platinum-layer **remodeling** itself (consolidating grain, collapsing star schemas, blending brands). The output is a faithful first draft on the new physical names — `translate → enrich/combine → validate`. Set that expectation: the tool does the translate, the customer applies the platinum remodel on top.
+
+(Agents with the MCP can pass the same maps as the `table_map` / `column_map` arguments to `convert_bobj_to_sigma` instead of the script flag.)
+
 **Phase 3 — Webi document → workbook**
 ```
 node scripts/migrate-webi.mjs <docId> --universe <universeId>

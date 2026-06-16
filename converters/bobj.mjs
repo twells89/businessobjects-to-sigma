@@ -27,6 +27,103 @@ export function convertBobjToSigma(input, options = {}) {
     const uni = normalizeBobjUniverse(input);
     return convertBobjIR(uni, options);
 }
+// ── Target-layer remap (old universe names → restructured / platinum names) ──
+// Build lookup maps. tableMap: { OLD_TABLE: "NEW_TABLE" | { table, database?, schema? } }.
+// columnMap: { "OLD_TABLE.OLD_COL": "NEW_COL" } or { "*.OLD_COL": "NEW_COL" } (any table).
+function buildBobjRemap(tableMap = {}, columnMap = {}) {
+    const tmap = new Map(); // OLD TABLE KEY → { name, database?, schema? }
+    for (const [k, v] of Object.entries(tableMap || {})) {
+        const e = typeof v === 'string' ? { name: v } : { name: v.name || v.table, database: v.database, schema: v.schema };
+        if (e.name)
+            tmap.set(tableKeyOf(k), e);
+    }
+    const cmap = new Map(); // "OLD_TABLE_KEY.OLD_COL↑" | "*.OLD_COL↑" → NEW_COL
+    for (const [k, v] of Object.entries(columnMap || {})) {
+        if (!v)
+            continue;
+        const dot = k.indexOf('.');
+        const t = dot >= 0 ? tableKeyOf(k.slice(0, dot)) : '*';
+        const c = (dot >= 0 ? k.slice(dot + 1) : k).trim().toUpperCase();
+        cmap.set(`${t}.${c}`, v);
+    }
+    return { tmap, cmap };
+}
+// Rewrite every Table.Col token in a SQL string using the remap maps.
+function remapBobjSql(sql, tmap, cmap, used) {
+    if (!sql)
+        return sql;
+    const re = /"?([A-Za-z_][\w ]*?)"?\s*\.\s*"?([A-Za-z_]\w*)"?/g;
+    return sql.replace(re, (_full, t, c) => {
+        const tk = tableKeyOf(t);
+        const te = tmap.get(tk);
+        if (te)
+            used.tables.add(tk);
+        const newTable = te?.name ?? t;
+        const cu = c.trim().toUpperCase();
+        const newCol = cmap.get(`${tk}.${cu}`) ?? cmap.get(`*.${cu}`) ?? c;
+        if (newCol !== c)
+            used.cols.add(`${tk}.${cu}`);
+        return `${newTable}.${newCol}`;
+    });
+}
+// Rewrite a bare table name (join left/right hint, no dotted column).
+function remapBobjBare(name, tmap, used) {
+    if (!name)
+        return name;
+    if (/\./.test(name))
+        return name;
+    const e = tmap.get(tableKeyOf(name));
+    if (e) {
+        used.tables.add(tableKeyOf(name));
+        return e.name;
+    }
+    return name;
+}
+export function applyBobjRemap(uni, tableMap, columnMap) {
+    const hasT = tableMap && Object.keys(tableMap).length;
+    const hasC = columnMap && Object.keys(columnMap).length;
+    if (!hasT && !hasC)
+        return { uni, warnings: [] };
+    const { tmap, cmap } = buildBobjRemap(tableMap, columnMap);
+    const used = { tables: new Set(), cols: new Set() };
+    const warnings = [];
+    // Tables — rename/relocate, collapsing many-to-one consolidations by new key.
+    const merged = new Map();
+    for (const t of uni.tables) {
+        const tk = tableKeyOf(t.name);
+        const e = tmap.get(tk);
+        if (e)
+            used.tables.add(tk);
+        const name = e?.name ?? t.name;
+        const key = tableKeyOf(name);
+        const prev = merged.get(key);
+        merged.set(key, {
+            name,
+            database: e?.database ?? t.database ?? prev?.database,
+            schema: e?.schema ?? t.schema ?? prev?.schema,
+        });
+    }
+    const consolidations = uni.tables.length - merged.size;
+    const newUni = {
+        ...uni,
+        tables: [...merged.values()],
+        objects: uni.objects.map(o => ({ ...o, select: remapBobjSql(o.select, tmap, cmap, used) })),
+        joins: uni.joins.map(j => ({
+            ...j,
+            left: remapBobjBare(j.left, tmap, used),
+            right: remapBobjBare(j.right, tmap, used),
+            expression: remapBobjSql(j.expression, tmap, cmap, used),
+        })),
+    };
+    warnings.push(`Target-layer remap applied: ${used.tables.size} table(s) + ${used.cols.size} column(s) repointed${consolidations > 0 ? `, ${consolidations} table(s) consolidated into one` : ''}.`);
+    for (const k of tmap.keys())
+        if (!used.tables.has(k))
+            warnings.push(`Remap: tableMap key "${k}" matched no universe table — check the name.`);
+    for (const k of cmap.keys())
+        if (!k.startsWith('*.') && !used.cols.has(k))
+            warnings.push(`Remap: columnMap key "${k.replace('.', '/')}" matched no universe column — check the name.`);
+    return { uni: newUni, warnings };
+}
 // ── RWS-shape-tolerant ingest → IR ───────────────────────────────────────────
 export function normalizeBobjUniverse(input) {
     const root = input?.universe ?? input ?? {};
@@ -140,8 +237,17 @@ function pushObject(out, o, className) {
 }
 export function convertBobjIR(uni, options = {}) {
     resetIds();
-    const { connectionId = '<CONNECTION_ID>', database: dbOverride = '', schema: schOverride = '', modelName } = options;
+    const { connectionId = '<CONNECTION_ID>', database: dbOverride = '', schema: schOverride = '', modelName, tableMap, columnMap } = options;
     const warnings = [];
+    // Target-layer remap (restructured / platinum layer): rewrite the universe's
+    // old physical table/column names to the new warehouse names BEFORE conversion,
+    // so the output binds to the layer that actually exists. Many old tables may
+    // map to one (consolidation). No-op when neither map is provided.
+    if (tableMap || columnMap) {
+        const r = applyBobjRemap(uni, tableMap, columnMap);
+        uni = r.uni;
+        warnings.push(...r.warnings);
+    }
     // Pass 1 — one Sigma element per physical table.
     const ctxByKey = new Map();
     for (const t of uni.tables) {

@@ -21,6 +21,7 @@ No Java SDK, no Client Tools, no manual exports — one logon token unlocks the 
 - joins → relationships, with FK/PK keys parsed from the join `Table.col = Table.col` SQL
 - each fact gets a denormalized **View** element (own + related columns) — the single element a workbook binds to
 - predefined filters and `@`‑functions (`@Prompt` / `@Select` / `@Variable` / `@Aggregate_Aware` / `@Where`) → warnings
+- **target‑layer remap** (optional): if the warehouse was restructured vs. the universe (renamed / consolidated tables — e.g. a platinum layer), pass `--remap remap.json` (`tableMap` / `columnMap`) to repoint the output at the new physical names *before* conversion. Many old tables may map to one; business names are preserved; unmatched keys are surfaced as warnings. See SKILL.md → **Phase 2a**.
 
 **Webi document → workbook** (`converters/webi.mjs`)
 - report tab → page · table → table · crosstab → pivot‑table · chart → bar/line/pie/area · measure cell → KPI · filter → control
@@ -44,6 +45,7 @@ set -a; . ./.bo_env; set +a
 npm test                                         # offline: converters vs. bundled fixtures
 node scripts/discover.mjs                        # inventory universes + Webi docs → inventory.json
 node scripts/migrate-universe.mjs <universeId>   # universe → data model (records binding)
+node scripts/migrate-universe.mjs <universeId> --remap remap.json   # …repointed at a restructured / platinum layer
 node scripts/migrate-webi.mjs <docId> --universe <universeId>   # Webi doc → workbook
 ```
 
