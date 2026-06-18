@@ -3,10 +3,17 @@
  * Migrate one BusinessObjects universe → a Sigma data model.
  *
  * Usage:  node scripts/migrate-universe.mjs <universeId> [--remap <remap.json>]
+ *         node scripts/migrate-universe.mjs --file <universe.xml|.json> [--remap <remap.json>]
  *
  * Fetches the universe via RWS, converts it, POSTs the data model to Sigma,
  * then records the binding (dataModelId + View element id + measureMap) in
  * .bo-state.json so migrate-webi.mjs can bind reports to it.
+ *
+ * --file <path>  Convert a local universe file instead of calling RWS. Accepts
+ *   an SL-SDK / IDT XML export (from scripts/extract-universe-sdk.groovy) OR an
+ *   RWS-style JSON IR — auto-detected by the converter (a leading "<" = XML).
+ *   This is the path that carries the physical columns + object SELECTs the RWS
+ *   REST endpoint does NOT expose. No BO server login is performed.
  *
  * --remap <file.json>  When the warehouse was restructured vs. the universe
  *   (renamed / consolidated tables — e.g. a platinum layer), pass a JSON file
@@ -24,8 +31,14 @@ const STATE = '.bo-state.json';
 
 async function main() {
   const args = process.argv.slice(2);
-  const universeId = args[0];
-  if (!universeId) { console.error('Usage: node scripts/migrate-universe.mjs <universeId> [--remap <remap.json>]'); process.exit(1); }
+  const fileIdx = args.indexOf('--file');
+  const localFile = fileIdx >= 0 ? args[fileIdx + 1] : null;
+  const universeId = args[0] && !args[0].startsWith('--') ? args[0] : null;
+  if (!universeId && !localFile) {
+    console.error('Usage: node scripts/migrate-universe.mjs <universeId> [--remap <remap.json>]');
+    console.error('   or: node scripts/migrate-universe.mjs --file <universe.xml|.json> [--remap <remap.json>]');
+    process.exit(1);
+  }
 
   // Optional target-layer remap (restructured / platinum layer).
   let tableMap, columnMap;
@@ -38,8 +51,18 @@ async function main() {
     console.log(`Applying target-layer remap from ${remapFile} (${Object.keys(tableMap || {}).length} table(s), ${Object.keys(columnMap || {}).length} column(s)).`);
   }
 
-  await logon();
-  const universe = await getUniverse(universeId);
+  // Universe source: a local SL-SDK/IDT export file (no RWS), or RWS by id.
+  // `universe` is a raw string here — convertBobjToSigma auto-detects XML vs JSON.
+  let universe, stateKey;
+  if (localFile) {
+    universe = readFileSync(localFile, 'utf8');
+    stateKey = localFile;
+    console.log(`Converting local universe file ${localFile} (${universe.trimStart().startsWith('<') ? 'SL-SDK/IDT XML' : 'JSON'}) — no RWS login.`);
+  } else {
+    await logon();
+    universe = await getUniverse(universeId);
+    stateKey = universeId;
+  }
 
   const result = convertBobjToSigma(universe, {
     connectionId: process.env.SIGMA_CONNECTION_ID,
@@ -63,16 +86,16 @@ async function main() {
   for (const e of result.model.pages[0].elements) for (const m of (e.metrics || [])) measureMap[m.name] = m.formula;
 
   const state = existsSync(STATE) ? JSON.parse(readFileSync(STATE, 'utf8')) : {};
-  state[universeId] = {
+  state[stateKey] = {
     dataModelId,
     viewElementId: view?.id || null,
     sourceName: view?.name || null,
     measureMap,
-    universeName: universe.universe?.name || universe.name,
+    universeName: result.model.name,
   };
   writeFileSync(STATE, JSON.stringify(state, null, 2));
   console.log(`Recorded binding in ${STATE} (View element: ${view?.name || '—'} ${view?.id || ''}).`);
-  console.log(`Next: node scripts/migrate-webi.mjs <docId> --universe ${universeId}`);
+  console.log(`Next: node scripts/migrate-webi.mjs <docId> --universe ${stateKey}`);
 }
 
 main().catch(e => { console.error('migrate-universe failed:', e.message); process.exit(1); });

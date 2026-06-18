@@ -27,6 +27,21 @@ check((fact?.relationships || []).some(r => r.name === 'CUSTOMER_DIM' && r.keys.
 const view = els.find(e => /View$/.test(e.name));
 check(!!view && view.columns.some(c => c.formula === '[Order Fact/CUSTOMER_DIM/Customer Region]'), 'universe: View has cross-element [.../CUSTOMER_DIM/Customer Region]');
 
+// ── Universe → data model via SL-SDK / IDT XML export (ingestBobjSdkXml) ─────
+// The XML path carries the physical columns + object SELECTs the RWS REST
+// endpoint does NOT expose; it must produce a structurally identical model.
+const xmlUni = convertBobjToSigma(readFileSync(join(root, 'fixtures/efashion_universe.xml'), 'utf8'),
+  { connectionId: 'conn', database: 'CSA', schema: 'TJ' });
+const sig = r => JSON.stringify(r.model.pages[0].elements.map(e => ({
+  n: e.name, k: e.source?.kind, p: e.source?.path,
+  c: (e.columns || []).map(c => c.name || c.formula),
+  m: (e.metrics || []).map(m => `${m.name}=${m.formula}`),
+  r: (e.relationships || []).map(rl => rl.name),
+})));
+check(xmlUni.model.schemaVersion === 1, 'xml: schemaVersion === 1');
+check(JSON.stringify(xmlUni.stats) === JSON.stringify(uni.stats), `xml: stats match JSON path (${JSON.stringify(xmlUni.stats)})`);
+check(sig(xmlUni) === sig(uni), 'xml: SDK-XML ingest produces identical structure to RWS JSON ingest');
+
 // ── Universe → data model WITH target-layer remap (restructured / platinum) ──
 const remapped = convertBobjToSigma(read('fixtures/efashion_universe.json'), {
   connectionId: 'conn', database: 'CSA',
