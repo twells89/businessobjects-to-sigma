@@ -12,7 +12,25 @@ Two layers, one connection:
 | Universe (semantic layer) | Data model | `converters/bobj.mjs` (≡ MCP `convert_bobj_to_sigma`) |
 | Web Intelligence document | Workbook | `converters/webi.mjs` |
 
-Everything is pulled over HTTP from the **BI RESTful Web Service (RWS)** on the customer's BO server — no Java SDK, no Client Tools, no manual exports.
+The universe is pulled over HTTP from the **BI RESTful Web Service (RWS)**, or — when you need the actual warehouse columns and calculations — from a **Semantic Layer SDK / IDT export** (see the extraction-paths note below).
+
+## Two extraction paths (the warehouse-columns gap)
+
+> **The RWS REST endpoint returns only the business _outline_** — object names, datatypes, folders. It does **NOT** return each object's SELECT/WHERE (the calculation) or the data foundation (physical tables, columns, joins). That is an SAP design limit of the REST API — even 4.3 stops at the outline. If a customer shows you universe JSON with no real columns or SQL, that's expected, not a converter bug.
+
+| You need… | Use | Carries SELECTs + tables? |
+|---|---|---|
+| Inventory / scoping (what universes & reports exist) | **RWS JSON** — `GET /sl/v1/universes/{id}` | ❌ outline only |
+| A real migration (columns + calculations) | **SL-SDK / IDT XML** — `scripts/extract-universe-sdk.groovy` | ✅ yes |
+
+The converter **auto-detects** the input (a leading `<` ⇒ XML) and normalizes both to the same IR, so `convert_bobj_to_sigma` / `converters/bobj.mjs` / the browser tool all accept either. To produce the SDK export, run the bundled extractor on a machine with the BO Client Tools / **Semantic Layer SDK** installed (it walks each object's `RelationalBinding` — `getSelect()/getWhere()/getTables()` — plus the data foundation), or export the data foundation + business layer from the Information Design Tool:
+
+```
+groovy -cp "$SL_SDK_LIB/*" scripts/extract-universe-sdk.groovy --unx /path/eFashion.unx --out universe.xml
+node scripts/migrate-universe.mjs --file universe.xml      # convert + POST (no RWS login)
+```
+
+> The extractor is coded to the documented SL SDK API but has not been run against a live BO server from here — expect a getter name or two to need adjusting on first contact (4.1/4.2/4.3 vary). The XML→Sigma conversion path itself is verified end-to-end (`fixtures/efashion_universe.xml`).
 
 ## Prerequisites
 
@@ -83,7 +101,8 @@ If you're an agent with the Sigma data-model MCP available, you can skip `conver
 
 ## Scope & limits
 
-- **Universe contexts, join cardinalities, derived-table SQL** — RWS metadata is light here. Full fidelity needs a Semantic-Layer-SDK XML export; the converter's IR core is structured to accept that as a Phase-2 ingest without a rewrite.
+- **RWS JSON carries no SELECTs / tables** — the REST outline has no relational bindings or data foundation, so columns and calculations can't come from it. The SL-SDK / IDT XML path (`extract-universe-sdk.groovy` → `ingestBobjSdkXml`, auto-detected) supplies them. Same converter core.
+- **Universe contexts** (alternate join paths) — not yet modeled; relationships come from the join graph. Verify multi-fact routing.
 - **Crystal Reports** — not covered by RWS (separate, proprietary). Out of scope.
 - **`@`-functions & predefined filters** — emitted as warnings; re-author as Sigma controls/filters.
 - **Status:** the converters are verified end-to-end against Sigma (POST + real-data query). The RWS *discovery* scripts are coded to the documented contract but have **not** been run against a live BO server yet — expect to adjust response-shape parsing on first contact (see comments in `scripts/bo-rws.mjs`).
