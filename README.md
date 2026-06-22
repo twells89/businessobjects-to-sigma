@@ -27,6 +27,20 @@ No Java SDK, no Client Tools, no manual exports — one logon token unlocks the 
 - report tab → page · table → table · crosstab → pivot‑table · chart → bar/line/pie/area · measure cell → KPI · filter → control
 - every element binds to the universe's View element; column refs are qualified by the source element name (`[Order Fact View/Net Revenue]`) so nothing self‑references
 
+### Webi input: live documents, not `.wid` files
+
+The Webi converter ingests the **Raylight document JSON** pulled live from the BO server — `GET /biprws/raylight/v1/documents/{id}` (and `…/reports/{rid}/elements`) — addressed by **document id**, *not* a `.wid` file on disk.
+
+A `.wid` is SAP's **proprietary binary** Web Intelligence Document format; it has no published spec and no clean offline parser — reading its structure requires the BO platform (Raylight REST, or the legacy Java Report‑Engine/Rebean SDK). **So this repo cannot read a loose `.wid` directly.**
+
+If all you have is `.wid` files, get them onto a reachable CMS first, then migrate by id:
+
+1. **Import the `.wid`(s)** into a BO 4.x repository — via *Open → From File* in the Webi client, the CMC/promotion management, or a `.biar`/LCM import (a sandbox/temp BO instance works).
+2. `node scripts/discover.mjs` → inventory to get each document's **id**.
+3. `node scripts/migrate-webi.mjs <docId> --universe <universeId>`.
+
+That's the only path that yields the structured model the converter needs. (The converter IR is tolerant enough that an exported structured representation could be wired as an alternate ingest later — but the `.wid` binary itself doesn't give you one.)
+
 This converter mirrors the `convert_bobj_to_sigma` tool in [`sigma-data-model-mcp`](https://github.com/twells89/sigma-data-model-mcp); `converters/bobj.mjs` + `helpers.mjs` are a faithful standalone port so this repo runs without the MCP server.
 
 ## Prerequisites
@@ -64,6 +78,7 @@ SKILL.md      agent-facing skill definition (Claude Code / Agent SDK)
 ## Limitations
 
 - **Universe contexts, join cardinalities, derived‑table SQL** — light in RWS metadata; full fidelity needs a Semantic‑Layer‑SDK XML export (the converter IR is structured to accept that as a later ingest).
+- **Raw `.wid` files** — not parseable directly (proprietary binary). Import them into a BO repository and migrate by document id — see *Webi input: live documents, not `.wid` files* above.
 - **Crystal Reports** — not covered by RWS; out of scope.
 - **`@`‑functions / predefined filters** — surfaced as warnings; re‑author as Sigma controls/filters.
 
