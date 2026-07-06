@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { convertBobjToSigma } from '../converters/bobj.mjs';
+import { convertBobjToSigma, detectBobjInputKind } from '../converters/bobj.mjs';
 import { convertWebiToWorkbook } from '../converters/webi.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -58,6 +58,40 @@ check(remapped.warnings.some(w => /remap applied/i.test(w)), 'remap: applied-sum
 // A bad map key must be surfaced, not silently ignored.
 const remapTypo = convertBobjToSigma(read('fixtures/efashion_universe.json'), { connectionId: 'conn', tableMap: { NOPE_TABLE: 'WHATEVER' } });
 check(remapTypo.warnings.some(w => /matched no universe table/.test(w)), 'remap: unmatched tableMap key warns (typo guard)');
+
+// ── Join fidelity: schema-qualified (3-part) join expressions must resolve ────
+// A data-foundation join like "DWH"."ORDER_FACT"."KEY" = "DWH"."CUST_DIM"."KEY"
+// must still produce a relationship (parseJoinKeys takes the last two segments).
+const xml3 = `<universe name="Q"><dataFoundation>
+  <tables><table name="ORDER_FACT"/><table name="CUST_DIM"/></tables>
+  <joins><join cardinality="many-to-one"><expression>"DWH"."ORDER_FACT"."CUST_KEY" = "DWH"."CUST_DIM"."CUST_KEY"</expression></join></joins>
+</dataFoundation><businessLayer>
+  <object name="Region" type="dimension"><select>CUST_DIM.REGION</select></object>
+  <object name="Revenue" type="measure"><select>sum(ORDER_FACT.NET_REVENUE)</select></object>
+</businessLayer></universe>`;
+const q3 = convertBobjToSigma(xml3, { connectionId: 'conn', database: 'DB', schema: 'S' });
+check(q3.stats.relationships === 1, `join: schema-qualified 3-part join → 1 relationship (got ${q3.stats.relationships})`);
+check(q3.warnings.every(w => !/0 relationships|0 produced a relationship/.test(w)), 'join: no zero-join guard when a relationship exists');
+// The join key must reference the FULL column (CUST_KEY), not a truncated prefix —
+// the relationship targets the CUST_DIM element's CUST_KEY hidden column.
+const q3els = q3.model.pages[0].elements;
+const q3fact = q3els.find(e => e.name === 'Order Fact');
+const q3cust = q3els.find(e => e.name === 'Cust Dim');
+const q3rel = q3fact?.relationships?.[0];
+const q3tgtCol = q3cust?.columns?.find(c => c.id === q3rel?.keys?.[0]?.targetColumnId);
+check(/Cust Key/i.test(q3tgtCol?.formula || ''), `join: 3-part key target column is the full CUST_KEY, not truncated (got ${q3tgtCol?.formula})`);
+
+// ── Input-kind detection + zero-join guard (silent low-fidelity model) ────────
+check(detectBobjInputKind(xml3) === 'sdk-xml', 'input-kind: leading < → sdk-xml');
+const outlineJson = JSON.stringify({ name: 'U', tables: ['A', 'B'], objects: [
+  { name: 'x', type: 'dimension', select: 'A.X' }, { name: 'y', type: 'dimension', select: 'B.Y' } ] });
+check(detectBobjInputKind(outlineJson) === 'json-outline', 'input-kind: joinless JSON → json-outline');
+check(detectBobjInputKind(JSON.stringify({ tables: ['A', 'B'], joins: [{ expression: 'A.K=B.K' }] })) === 'json-with-joins',
+  'input-kind: JSON with joins[] → json-with-joins');
+const guarded = convertBobjToSigma(outlineJson, { connectionId: 'conn' });
+check(guarded.stats.relationships === 0, 'guard: multi-table outline → 0 relationships');
+check(guarded.warnings.some(w => /Input format: RWS outline JSON/.test(w)), 'guard: outline input surfaces "Input format" note');
+check(guarded.warnings.some(w => /No joins in the universe input: 2 tables produced 0 relationships/.test(w)), 'guard: zero-join guard warning fires');
 
 // ── Webi → workbook ──────────────────────────────────────────────────────────
 const measureMap = {};
