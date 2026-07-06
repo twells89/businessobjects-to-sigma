@@ -18,12 +18,17 @@ The universe is pulled over HTTP from the **BI RESTful Web Service (RWS)**, or �
 
 > **The RWS REST endpoint returns only the business _outline_** — object names, datatypes, folders. It does **NOT** return each object's SELECT/WHERE (the calculation) or the data foundation (physical tables, columns, joins). That is an SAP design limit of the REST API — even 4.3 stops at the outline. If a customer shows you universe JSON with no real columns or SQL, that's expected, not a converter bug.
 
-| You need… | Use | Carries SELECTs + tables? |
-|---|---|---|
-| Inventory / scoping (what universes & reports exist) | **RWS JSON** — `GET /sl/v1/universes/{id}` | ❌ outline only |
-| A real migration (columns + calculations) | **SL-SDK / IDT XML** — `scripts/extract-universe-sdk.groovy` | ✅ yes |
+**Whether your input carries joins depends entirely on the file you feed it** — not JSON-vs-XML alone. The converter classifies the input and says so in its first warning (`Input format: …`); the join graph (and therefore the dimension columns a workbook can reach) only exists when the input carries a data foundation:
 
-The converter **auto-detects** the input (a leading `<` ⇒ XML) and normalizes both to the same IR, so `convert_bobj_to_sigma` / `converters/bobj.mjs` / the browser tool all accept either. To produce the SDK export, run the bundled extractor on a machine with the BO Client Tools / **Semantic Layer SDK** installed (it walks each object's `RelationalBinding` — `getSelect()/getWhere()/getTables()` — plus the data foundation), or export the data foundation + business layer from the Information Design Tool:
+| The file you provide | Where it comes from | Carries joins? | → Result |
+|---|---|---|---|
+| **RWS outline JSON** | `GET /sl/v1/universes/{id}` (or `scripts/discover.mjs`) | ❌ **no** — outline only | Tables with **0 relationships**; a workbook sees only ONE table's columns (~the fact table). **Not enough for a real migration.** |
+| **SL-SDK / IDT XML export** | `scripts/extract-universe-sdk.groovy` on a box with the SL SDK / IDT | ✅ **yes** — data foundation + joins | Full model: relationships + all columns. **Use this for an actual migration.** |
+| **Extractor `--json`** | `extract-universe-sdk.groovy --json` | ✅ **yes** — same IR, JSON-encoded | Same as XML. |
+
+If a multi-table universe converts to **0 relationships**, the converter now emits a loud guard warning naming the likely cause (outline-only input vs. unparseable/unmatched joins) — heed it before handing the model off, or the workbook will silently ship with only ~one table's columns.
+
+The converter **auto-detects** the input (a leading `<` ⇒ XML) and normalizes all three to the same IR, so `convert_bobj_to_sigma` / `converters/bobj.mjs` / the browser tool all accept any of them. To produce the SDK export, run the bundled extractor on a machine with the BO Client Tools / **Semantic Layer SDK** installed (it walks each object's `RelationalBinding` — `getSelect()/getWhere()/getTables()` — plus the data foundation), or export the data foundation + business layer from the Information Design Tool:
 
 ```
 groovy -cp "$SL_SDK_LIB/*" scripts/extract-universe-sdk.groovy --unx /path/eFashion.unx --out universe.xml
