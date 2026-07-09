@@ -28,6 +28,20 @@ The universe is pulled over HTTP from the **BI RESTful Web Service (RWS)**, or �
 
 If a multi-table universe converts to **0 relationships**, the converter now emits a loud guard warning naming the likely cause (outline-only input vs. unparseable/unmatched joins) — heed it before handing the model off, or the workbook will silently ship with only ~one table's columns.
 
+## Relationship direction (why columns come back as "multiple values")
+
+**How Sigma relationships work:** a relationship in a Sigma data model is a **many→one lookup**. The element that *owns* the relationship is the **"many" side** (the fact / most granular table); it looks up a **single** matching row on the **"one" side** (a dimension). The converter builds the denormalized **View** on that many-side source element, so a workbook binds to one row per fact row and pulls each dimension's attributes alongside.
+
+**The failure mode:** if the relationship is built the wrong way round — source on the **"one"** side reaching into the **"many"** side — then every column looked up across the join matches *many* rows, and Sigma renders them as **"multiple values."** (Tell-tale sign: the base table's own columns show real values while everything reached across the join shows "multiple values.") This is *not* a data problem; it's a join-direction problem in the model.
+
+**How the converter picks the direction** (from the data-foundation join's cardinality):
+
+1. **Explicit cardinality** — recognized in the forms BO/IDT emit: `one-to-many`/`many-to-one`, `OneToMany`, `1-n`/`n-1`, `1:N`/`N:1`, `1..N`/`N..1`, `1..*`/`*..1`, and per-side `leftCardinality`/`rightCardinality` (or `*Multiplicity`) attributes/tags. The many side becomes the source.
+2. **No cardinality in the export** — inferred from the star-schema shape: the **measure-bearing (fact) table is the many side**. If exactly one joined table carries measures, that side is made the source.
+3. **Still ambiguous** (no cardinality *and* measures don't disambiguate) — the converter keeps the left table as source **and emits a warning** telling you to flip the relationship if columns come back as "multiple values." Never assume; verify.
+
+**If you still see "multiple values"** on a delivered model, the relationship is pointing the wrong way: in the Sigma data model, flip it so the **source element is the many/fact table** (or re-export with cardinality so the converter gets it right). Make sure your SL-SDK / IDT export includes join cardinality — it's what removes the guesswork.
+
 The converter **auto-detects** the input (a leading `<` ⇒ XML) and normalizes all three to the same IR, so `convert_bobj_to_sigma` / `converters/bobj.mjs` / the browser tool all accept any of them. To produce the SDK export, run the bundled extractor on a machine with the BO Client Tools / **Semantic Layer SDK** installed (it walks each object's `RelationalBinding` — `getSelect()/getWhere()/getTables()` — plus the data foundation), or export the data foundation + business layer from the Information Design Tool:
 
 ```
@@ -98,7 +112,7 @@ node scripts/migrate-webi.mjs <docId> --universe <universeId>
 Fetches the Webi document, maps report tabs→pages, tables→tables, crosstabs→pivot-tables, charts→bar/line/pie, measure cells→KPIs, filters→controls. Binds every element to the universe's View element and references columns **qualified by the source element name** (`[Order Fact View/Net Revenue]`) so nothing self-references. POSTs the workbook.
 
 **Phase 4 — Verify**
-Query the saved objects (Sigma MCP `describe` + `query`, or the UI). The bar: real warehouse data, zero error-typed columns. Review every converter warning — predefined filters, `@Prompt`/`@Variable`/`@Select`/`@Aggregate_Aware`, and multi-table object SELECTs are surfaced for manual follow-up, not silently dropped.
+Query the saved objects (Sigma MCP `describe` + `query`, or the UI). The bar: real warehouse data, zero error-typed columns. Review every converter warning — predefined filters, `@Prompt`/`@Variable`/`@Select`/`@Aggregate_Aware`, and multi-table object SELECTs are surfaced for manual follow-up, not silently dropped. **If any looked-up column shows "multiple values,"** the relationship direction is wrong — see [Relationship direction](#relationship-direction-why-columns-come-back-as-multiple-values); flip the relationship so its source is the many/fact side.
 
 ## Agent path (no scripts)
 

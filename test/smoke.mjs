@@ -81,6 +81,46 @@ const q3rel = q3fact?.relationships?.[0];
 const q3tgtCol = q3cust?.columns?.find(c => c.id === q3rel?.keys?.[0]?.targetColumnId);
 check(/Cust Key/i.test(q3tgtCol?.formula || ''), `join: 3-part key target column is the full CUST_KEY, not truncated (got ${q3tgtCol?.formula})`);
 
+// ── Relationship DIRECTION: the many/fact side must be the source (View base) ──
+// In Sigma a relationship is a many→one lookup; if the "one" side is the source,
+// every looked-up column fans out to "multiple values". The dimension is on the
+// LEFT here, so a naive "left = source" would build the View on the one side.
+const srcOf = (els) => els.find(e => e.relationships?.length)?.name;
+// (a) cardinality one-to-many (left=one dim, right=many fact) → source = fact.
+const dirCard = convertBobjToSigma(`<universe name="D"><dataFoundation>
+  <tables><table name="CUST_DIM"/><table name="ORDER_FACT"/></tables>
+  <joins><join cardinality="one-to-many"><expression>CUST_DIM.CUST_KEY = ORDER_FACT.CUST_KEY</expression></join></joins>
+</dataFoundation><businessLayer>
+  <object name="Region" type="dimension"><select>CUST_DIM.REGION</select></object>
+  <object name="Revenue" type="measure"><select>sum(ORDER_FACT.NET_REVENUE)</select></object>
+</businessLayer></universe>`, { connectionId: 'conn' });
+check(srcOf(dirCard.model.pages[0].elements) === 'Order Fact', `direction: one-to-many puts the many/fact side as source (got ${srcOf(dirCard.model.pages[0].elements)})`);
+// (b) 1:N symbolic encoding → same result.
+const dirSym = convertBobjToSigma(`<universe name="D"><dataFoundation>
+  <tables><table name="CUST_DIM"/><table name="ORDER_FACT"/></tables>
+  <joins><join cardinality="1:N"><expression>CUST_DIM.CUST_KEY = ORDER_FACT.CUST_KEY</expression></join></joins>
+</dataFoundation><businessLayer>
+  <object name="Revenue" type="measure"><select>sum(ORDER_FACT.NET_REVENUE)</select></object>
+</businessLayer></universe>`, { connectionId: 'conn' });
+check(srcOf(dirSym.model.pages[0].elements) === 'Order Fact', `direction: "1:N" encoding recognized (got ${srcOf(dirSym.model.pages[0].elements)})`);
+// (c) NO cardinality → infer the many side from measures (the fact bears them).
+const dirInfer = convertBobjToSigma(`<universe name="D"><dataFoundation>
+  <tables><table name="CUST_DIM"/><table name="ORDER_FACT"/></tables>
+  <joins><join><expression>CUST_DIM.CUST_KEY = ORDER_FACT.CUST_KEY</expression></join></joins>
+</dataFoundation><businessLayer>
+  <object name="Region" type="dimension"><select>CUST_DIM.REGION</select></object>
+  <object name="Revenue" type="measure"><select>sum(ORDER_FACT.NET_REVENUE)</select></object>
+</businessLayer></universe>`, { connectionId: 'conn' });
+check(srcOf(dirInfer.model.pages[0].elements) === 'Order Fact', `direction: no cardinality → measure-bearing fact inferred as source (got ${srcOf(dirInfer.model.pages[0].elements)})`);
+// (d) per-side multiplicity attributes compose into a usable cardinality.
+const dirMult = convertBobjToSigma(`<universe name="D"><dataFoundation>
+  <tables><table name="CUST_DIM"/><table name="ORDER_FACT"/></tables>
+  <joins><join leftCardinality="1" rightCardinality="N"><expression>CUST_DIM.CUST_KEY = ORDER_FACT.CUST_KEY</expression></join></joins>
+</dataFoundation><businessLayer>
+  <object name="Revenue" type="measure"><select>sum(ORDER_FACT.NET_REVENUE)</select></object>
+</businessLayer></universe>`, { connectionId: 'conn' });
+check(srcOf(dirMult.model.pages[0].elements) === 'Order Fact', `direction: per-side multiplicity attrs (1 / N) compose correctly (got ${srcOf(dirMult.model.pages[0].elements)})`);
+
 // ── Input-kind detection + zero-join guard (silent low-fidelity model) ────────
 check(detectBobjInputKind(xml3) === 'sdk-xml', 'input-kind: leading < → sdk-xml');
 const outlineJson = JSON.stringify({ name: 'U', tables: ['A', 'B'], objects: [
