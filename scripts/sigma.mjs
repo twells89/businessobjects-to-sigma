@@ -68,7 +68,7 @@ export async function getDataModelSpec(dataModelId) {
  * surface it as an HTTP error on this call.
  */
 export async function postDataModelSpec(dataModelId, spec) {
-  return req('POST', `/v2/dataModels/${dataModelId}/spec`, spec, true);
+  return req('POST', `/v2/dataModels/${dataModelId}/spec`, spec);
 }
 
 /** Read the current workbook schemaVersion from any reference workbook (spec is YAML). */
