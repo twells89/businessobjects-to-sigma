@@ -204,6 +204,84 @@ check(r3cols.some(c => c.name === 'Bucket' && /If\(\[Order Fact View\/Revenue\] 
   const tbl6 = r6.workbook.pages[0].elements.find(e => e.kind === 'table');
   check(!('groupings' in tbl6), 'unresolvable break → no grouping');
   check(r6.warnings.some(w => /Nonexistent Dim.*not a column|break.*skipped/i.test(w)), 'unresolvable break warns');
+
+  // Fix 1 (final-review): a non-CumulativeSum cumulative left bare in a
+  // grouped table's calculations is NOT auto-adjusted to group level (only
+  // RunningSum→CumulativeSum is) — warn rather than guess a group-level
+  // rewrite, so it doesn't silently drop/mis-grain (Task-8 rule). RunningSum
+  // is still rewritten AND NOT warned.
+  const r7 = convertWebiToWorkbook({ document: { name: 'D', filters: [],
+    variables: [
+      { name: 'Running Rev', qualification: 'measure', formula: '=RunningSum([Net Revenue])' },
+      { name: 'Running Count Rev', qualification: 'measure', formula: '=RunningCount([Net Revenue])' },
+      { name: 'Prev Rev', qualification: 'measure', formula: '=Previous([Net Revenue])' },
+      { name: 'Avg Rev', qualification: 'measure', formula: '=RunningAverage([Net Revenue])' },
+    ],
+    reports: [ { name: 'R', blocks: [
+      { kind: 'VTable', title: 'Broken', dimensions: ['Customer Region'],
+        measures: ['Net Revenue', 'Running Rev', 'Running Count Rev', 'Prev Rev', 'Avg Rev'],
+        breaks: ['Customer Region'] } ] } ] } },
+    { dataModelId: 'DM', dataModelElementId: 'VIEW', sourceName: 'Order Fact View', measureMap: {}, schemaVersion: 1 });
+  const tbl7 = r7.workbook.pages[0].elements.find(e => e.kind === 'table');
+  const sumCol = tbl7.columns.find(c => c.name === 'Running Rev');
+  const cntCol = tbl7.columns.find(c => c.name === 'Running Count Rev');
+  const prevCol = tbl7.columns.find(c => c.name === 'Prev Rev');
+  const avgCol = tbl7.columns.find(c => c.name === 'Avg Rev');
+  check(/^CumulativeSum\(Sum\(\[Order Fact View\/Net Revenue\]\)\)$/.test(sumCol.formula), `RunningSum still rewritten to group level (got ${sumCol.formula})`);
+  check(cntCol.formula === 'CumulativeCount([Order Fact View/Net Revenue])', `RunningCount left UNTOUCHED, bare-column (got ${cntCol.formula})`);
+  check(prevCol.formula === 'Lag([Order Fact View/Net Revenue])', `Previous (Lag) left UNTOUCHED, bare-column (got ${prevCol.formula})`);
+  check(avgCol.formula === '(CumulativeSum([Order Fact View/Net Revenue]) / CumulativeCount([Order Fact View/Net Revenue]))', `RunningAverage ratio left UNTOUCHED, bare-column (got ${avgCol.formula})`);
+  check(r7.warnings.some(w => /grouped running calc "Running Count Rev" \(CumulativeCount\)/.test(w)), 'RunningCount → grouped running calc warning');
+  check(r7.warnings.some(w => /grouped running calc "Prev Rev" \(Lag\)/.test(w)), 'Previous → grouped running calc warning');
+  check(r7.warnings.some(w => /grouped running calc "Avg Rev" \(RunningAverage ratio\)/.test(w)), 'RunningAverage → grouped running calc warning');
+  check(!r7.warnings.some(w => /grouped running calc "Running Rev"/.test(w)), 'RunningSum/CumulativeSum does NOT get the grouped-running-calc warning (it IS rewritten)');
+
+  // Fix 2 (final-review): an unresolvable section does NOT ALSO get the
+  // "approximated as an outer grouping" warning — only the existing
+  // "not a column — skipped" one. (The section test above resolves fine and
+  // still gets the approximation warning — unchanged.)
+  const r8 = convertWebiToWorkbook({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', blocks: [ { kind: 'VTable', title: 'S', dimensions: ['Customer Region'], measures: ['Net Revenue'],
+        sections: ['Nonexistent Section'], breaks: ['Customer Region'] } ] } ] } },
+    { dataModelId: 'DM', dataModelElementId: 'VIEW', sourceName: 'Order Fact View', measureMap: {}, schemaVersion: 1 });
+  const tbl8 = r8.workbook.pages[0].elements.find(e => e.kind === 'table');
+  check(Array.isArray(tbl8.groupings) && tbl8.groupings.length === 1, 'break still groups the table even though the section is unresolvable');
+  check(r8.warnings.some(w => /Nonexistent Section.*not a column|break\/section.*skipped/i.test(w)), 'unresolvable section still warns "not a column"');
+  check(!r8.warnings.some(w => /outer grouping/i.test(w)), 'unresolvable section does NOT get the approximation warning');
+
+  // Fix 3 / T3a (final-review): all breaks/sections unresolvable but a sort
+  // is present → fall back to the element-level sort (same path as the
+  // no-breaks case) rather than silently discarding the sort.
+  const r9 = convertWebiToWorkbook({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', blocks: [ { kind: 'VTable', title: 'S', dimensions: ['Customer Region'], measures: ['Net Revenue'],
+        breaks: ['Nonexistent Dim'], sort: [{ name: 'Net Revenue', direction: 'descending' }] } ] } ] } },
+    { dataModelId: 'DM', dataModelElementId: 'VIEW', sourceName: 'Order Fact View', measureMap: {}, schemaVersion: 1 });
+  const tbl9 = r9.workbook.pages[0].elements.find(e => e.kind === 'table');
+  const netCol9 = tbl9.columns.find(c => c.name === 'Net Revenue');
+  check(!('groupings' in tbl9), 'unresolvable break → still no grouping');
+  check(Array.isArray(tbl9.sort) && tbl9.sort.length === 1 && tbl9.sort[0].columnId === netCol9.id && tbl9.sort[0].direction === 'descending',
+    `unresolvable break + valid sort → element-level sort fallback, not silently dropped (got ${JSON.stringify(tbl9.sort)})`);
+
+  // Fix 4a (final-review): a dim used as BOTH a section and a break →
+  // deduped groupBy (the id appears once, not twice).
+  const r10 = convertWebiToWorkbook({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', blocks: [ { kind: 'VTable', title: 'S', dimensions: ['Customer Region'], measures: ['Net Revenue'],
+        sections: ['Customer Region'], breaks: ['Customer Region'] } ] } ] } },
+    { dataModelId: 'DM', dataModelElementId: 'VIEW', sourceName: 'Order Fact View', measureMap: {}, schemaVersion: 1 });
+  const tbl10 = r10.workbook.pages[0].elements.find(e => e.kind === 'table');
+  const regionCol10 = tbl10.columns.find(c => c.name === 'Customer Region');
+  check(JSON.stringify(tbl10.groupings[0].groupBy) === JSON.stringify([regionCol10.id]), `dim used as BOTH section+break → groupBy id appears once (got ${JSON.stringify(tbl10.groupings[0].groupBy)})`);
+
+  // Fix 4b (final-review): a broken table with NO explicit sort defaults to
+  // sort:[{columnId: <outermost groupBy id>, direction:'ascending'}].
+  const r11 = convertWebiToWorkbook({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', blocks: [ { kind: 'VTable', title: 'S', dimensions: ['Customer Region'], measures: ['Net Revenue'],
+        breaks: ['Customer Region'] } ] } ] } },
+    { dataModelId: 'DM', dataModelElementId: 'VIEW', sourceName: 'Order Fact View', measureMap: {}, schemaVersion: 1 });
+  const tbl11 = r11.workbook.pages[0].elements.find(e => e.kind === 'table');
+  const regionCol11 = tbl11.columns.find(c => c.name === 'Customer Region');
+  check(tbl11.groupings[0].sort.length === 1 && tbl11.groupings[0].sort[0].columnId === regionCol11.id && tbl11.groupings[0].sort[0].direction === 'ascending',
+    `no explicit sort → default ascending on outermost groupBy key (got ${JSON.stringify(tbl11.groupings[0].sort)})`);
 }
 
 console.log(`\n${failures ? '❌ ' + failures + ' failed' : '✅ all passed'}`);
