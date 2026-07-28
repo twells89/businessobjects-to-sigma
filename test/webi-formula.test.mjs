@@ -26,5 +26,14 @@ check(translateWebiFormula('=[Revenue] - [Cost]').placement === 'dm', 'context-f
 check(translateWebiFormula('=Sum([Revenue]) / Count([Order Id])').kind === 'measure', 'ratio of aggregates → kind measure');
 check(translateWebiFormula('=[Region]').kind === 'dimension', 'bare ref, no qualification → kind dimension');
 
+// ── Tier 2: layout / window family → placement workbook ──────────────────────
+const prev = eq('=Previous([Revenue])', 'Lag([Revenue])', 'Previous → Lag');
+check(prev.placement === 'workbook', 'Previous forces placement workbook');
+eq('=RunningSum([Revenue])', 'CumulativeSum([Revenue])', 'RunningSum → CumulativeSum');
+eq('=RunningCount([Order Id])', 'CumulativeCount([Order Id])', 'RunningCount → CumulativeCount');
+eq('=Rank([Revenue])', 'Rank([Revenue])', 'Rank → Rank');
+eq('=Percentage([Revenue])', 'PercentOfTotal([Revenue])', 'Percentage → PercentOfTotal');
+check(translateWebiFormula('=Rank([Revenue])').placement === 'workbook', 'Rank forces placement workbook');
+
 console.log(`\n${failures ? '❌ ' + failures + ' failed' : '✅ all passed'}`);
 process.exit(failures ? 1 : 0);

@@ -17,8 +17,14 @@ export const FN_MAP = {
   formatdate: 'Text', todate: 'Date', currentdate: 'Today', truncate: 'Trunc',
   // sum/count/min/max/if/left/right/upper/lower/trim/replace/abs/round keep their name
 };
-// Tier 2 window/layout family (filled in Task 2). Presence forces placement 'workbook'.
-export const WINDOW_FN = {};
+// Tier 2 window/layout family. Presence forces placement 'workbook'.
+export const WINDOW_FN = {
+  previous: 'Lag', runningsum: 'CumulativeSum', runningcount: 'CumulativeCount',
+  rank: 'Rank', percentage: 'PercentOfTotal',
+};
+// RunningAverage has no single Sigma window fn — handled specially in `emit`
+// as a CumulativeSum/CumulativeCount ratio rather than via WINDOW_FN.
+const WINDOW_SPECIAL = new Set(['runningaverage']);
 
 const AGG_FN = new Set(['sum', 'count', 'avg', 'average', 'min', 'max', 'median']);
 // Functions/literals that indicate a text-typed operand, so a '+' between them
@@ -135,8 +141,16 @@ export function emit(node, state) {
     }
     case 'call': {
       const lc = node.name.toLowerCase();
-      const mapped = FN_MAP[lc] || (node.name[0].toUpperCase() + node.name.slice(1));
       const args = node.args.map(a => emit(a, state)).join(', ');
+      if (WINDOW_FN[lc] || WINDOW_SPECIAL.has(lc)) {
+        state.placement = 'workbook';
+        if (lc === 'runningaverage') {
+          state.warnings.push('RunningAverage has no single Sigma window fn — emitted as ratio; verify.');
+          return `(CumulativeSum(${args}) / CumulativeCount(${args}))`;
+        }
+        return `${WINDOW_FN[lc]}(${args})`;
+      }
+      const mapped = FN_MAP[lc] || (node.name[0].toUpperCase() + node.name.slice(1));
       return `${mapped}(${args})`;
     }
     default: throw new Error(`cannot emit ${node.t}`);
