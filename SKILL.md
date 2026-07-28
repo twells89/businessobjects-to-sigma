@@ -128,7 +128,7 @@ Set expectations with this before promising a Webi migration, and use it as the 
 | Report variables — arithmetic / string / date / `If` | 🟢 | `webi-formula.mjs` translates |
 | `RunningSum` / `RunningCount` / `Previous` | 🟢 | → `CumulativeSum` / `CumulativeCount` / `Lag` (workbook calc column) |
 | `Rank`, `Percentage` (% of total) | 🟢 | → `Rank`/`RankDense`, `PercentOfTotal` |
-| Subtotals / grand totals | 🟡 | Sigma tables/pivots have native totals — enable on the element (not auto-set) |
+| Subtotals (per break) / grand totals | 🟢 / 🟡 | Per-group **subtotals** auto-emitted from Webi breaks (see Formatting → Sections & breaks); a table **grand total** is not auto-emitted (Sigma UI footer) — add in Sigma |
 | Calculation context `In` / `ForEach` / `ForAll` | 🟡 | Parsed + **warned**: set the element grouping / window partition to the named dims and verify |
 | `NoFilter` | 🔴 | No direct equivalent — compute on a **separate unfiltered element** and reference it (warned) |
 | Nested vars / % of a report grand total | 🟢 | Not viewport-limited: Sigma computes aggregates/window fns over the **whole** warehouse result, so "only x rows rendered" is a non-issue |
