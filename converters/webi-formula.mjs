@@ -30,6 +30,11 @@ const WINDOW_SPECIAL = new Set(['runningaverage']);
 // (Webi source may use any casing — `foreach`, `FOREACH`, `ForEach`, ...).
 const CTX_CANON = { in: 'In', foreach: 'ForEach', forall: 'ForAll' };
 
+// Tier 4 — known-Sigma-function allowlist. A mapped/passthrough call name
+// that lands outside this set (and outside FN_MAP/WINDOW_FN/WINDOW_SPECIAL)
+// gets an "unknown function" warning rather than being silently emitted.
+const KNOWN_SIGMA = new Set(['sum', 'count', 'countdistinct', 'avg', 'min', 'max', 'median', 'if', 'switch', 'coalesce', 'isnull', 'left', 'right', 'mid', 'len', 'search', 'upper', 'lower', 'trim', 'replace', 'text', 'date', 'today', 'abs', 'round', 'trunc', 'lag', 'lead', 'cumulativesum', 'cumulativecount', 'rank', 'rankdense', 'percentoftotal']);
+
 const AGG_FN = new Set(['sum', 'count', 'avg', 'average', 'min', 'max', 'median']);
 // Functions/literals that indicate a text-typed operand, so a '+' between them
 // is Webi string concatenation and must emit as Sigma's '&' (not numeric '+').
@@ -69,6 +74,11 @@ export function tokenize(src) {
     if (c === '"' || c === "'") { const e = s.indexOf(c, i + 1); toks.push({ t: 'str', v: s.slice(i + 1, e < 0 ? s.length : e) }); i = e < 0 ? s.length : e + 1; continue; }
     if (/[0-9]/.test(c) || (c === '.' && /[0-9]/.test(s[i + 1] || ''))) { let j = i + 1; while (j < s.length && /[0-9.]/.test(s[j])) j++; toks.push({ t: 'num', v: s.slice(i, j) }); i = j; continue; }
     if (/[A-Za-z_]/.test(c)) { let j = i + 1; while (j < s.length && /[A-Za-z0-9_]/.test(s[j])) j++; toks.push({ t: 'ident', v: s.slice(i, j) }); i = j; continue; }
+    // Universe/report '@' functions (@Prompt, @Variable, ...) — tokenize `@word` as
+    // a single ident so a stray one (the pre-parse strip below normally removes
+    // these first) still degrades to a plain unknown-fn call rather than a stray
+    // 'punc' token that would otherwise fail to parse.
+    if (c === '@' && /[A-Za-z_]/.test(s[i + 1] || '')) { let j = i + 1; while (j < s.length && /[A-Za-z0-9_]/.test(s[j])) j++; toks.push({ t: 'ident', v: '@' + s.slice(i + 1, j) }); i = j; continue; }
     const pair = s.slice(i, i + 2);
     if (two[pair]) { toks.push({ t: 'op', v: pair }); i += 2; continue; }
     if ('+-*/&=<>'.includes(c)) { toks.push({ t: 'op', v: c }); i++; continue; }
@@ -161,6 +171,12 @@ export function emit(node, state) {
         const dimList = node.ctx.dims.join('; ');
         state.warnings.push(`context operator ${node.ctx.op}(${dimList}) on ${node.name}() — set the Sigma grouping/partition to [${node.ctx.dims.join('], [')}] and verify (auto-grouping not applied in v1).`);
       }
+      // Tier 4 — NoFilter() has no direct Sigma equivalent. Warn with the specific
+      // how-to and strip to the inner args so the rest of the formula still emits.
+      if (lc === 'nofilter') {
+        state.warnings.push(`NoFilter() has no direct Sigma equivalent — compute this on a separate UNFILTERED element (a duplicate element without the report filter) and reference it. Raw: NoFilter(${args})`);
+        return args || 'Null()';
+      }
       if (WINDOW_FN[lc] || WINDOW_SPECIAL.has(lc)) {
         state.placement = 'workbook';
         if (lc === 'runningaverage') {
@@ -169,11 +185,72 @@ export function emit(node, state) {
         }
         return `${WINDOW_FN[lc]}(${args})`;
       }
-      const mapped = FN_MAP[lc] || (node.name[0].toUpperCase() + node.name.slice(1));
-      return `${mapped}(${args})`;
+      const mappedName = FN_MAP[lc] || (node.name[0].toUpperCase() + node.name.slice(1));
+      // Tier 4 — anything not mapped, not a window fn, and not a known Sigma
+      // builtin is emitted verbatim but flagged for manual review.
+      if (!WINDOW_FN[lc] && !FN_MAP[lc] && !KNOWN_SIGMA.has(mappedName.toLowerCase())) {
+        state.warnings.push(`function ${node.name}() has no known Sigma mapping — emitted verbatim; review manually.`);
+      }
+      return `${mappedName}(${args})`;
     }
     default: throw new Error(`cannot emit ${node.t}`);
   }
+}
+
+// Splits a `@fn(...)`'s inner text on top-level (paren-depth-0) ',' or ';'
+// separators, so the first "argument" (or first Aggregate_Aware branch) can
+// be pulled out without needing a full tokenizer pass.
+function splitTopLevelArgs(s) {
+  const parts = [];
+  let depth = 0, cur = '';
+  for (const ch of s) {
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    if ((ch === ',' || ch === ';') && depth === 0) { parts.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  parts.push(cur);
+  return parts.map(x => x.trim());
+}
+
+// Mirrors bobj.mjs::translateBobjExpr's @-function warnings.
+function atFnWarning(name) {
+  const lc = name.toLowerCase();
+  if (lc === 'prompt') return `@${name}() (runtime prompt) — model it as a Sigma control/parameter.`;
+  if (lc === 'variable') return `@${name}() (session variable) — substitute a literal or a Sigma control.`;
+  if (lc === 'select') return `@${name}() (reference to another object) — inline the target object's definition manually.`;
+  if (lc === 'aggregate_aware') return `@${name}() — kept the first aggregate branch; verify table routing.`;
+  return `@${name}() — no Sigma equivalent; review manually.`;
+}
+
+// Universe/report '@' functions (@Prompt, @Variable, @Select, @Aggregate_Aware,
+// ...) have no Sigma equivalent and our tokenizer/parser don't understand their
+// syntax. Detect them before parsing, push a specific how-to warning per kind,
+// then strip each `@fn(...)` down to its first argument (or, for
+// @Aggregate_Aware, its first branch) so the remainder of the expression still
+// parses normally.
+function stripAtFunctions(src, warnings) {
+  let f = src;
+  const re = /@(\w+)\s*\(/;
+  let guard = 0;
+  let m;
+  while ((m = re.exec(f)) && guard++ < 20) {
+    const name = m[1];
+    const openIdx = m.index + m[0].length - 1; // index of the '('
+    let depth = 1, i = openIdx + 1;
+    while (i < f.length && depth > 0) {
+      if (f[i] === '(') depth++;
+      else if (f[i] === ')') depth--;
+      i++;
+    }
+    const closed = depth === 0;
+    const closeIdx = closed ? i - 1 : f.length;
+    const inner = f.slice(openIdx + 1, closeIdx);
+    const firstArg = splitTopLevelArgs(inner)[0] || '';
+    warnings.push(`${atFnWarning(name)} Raw: ${m[0]}${inner}${closed ? ')' : ''}`);
+    f = f.slice(0, m.index) + firstArg + f.slice(closeIdx + (closed ? 1 : 0));
+  }
+  return f;
 }
 
 // ── Public entry ─────────────────────────────────────────────────────────────
@@ -182,11 +259,15 @@ export function translateWebiFormula(formula, opts = {}) {
   const state = { warnings, placement: 'dm' };
   let sigma;
   try {
-    const ast = parse(tokenize(formula));
+    let f = String(formula || '').replace(/^\s*=/, '').trim();
+    f = stripAtFunctions(f, warnings);
+    const ast = parse(tokenize(f));
     sigma = emit(ast, state);
     state.ast = ast;
   } catch (e) {
-    // Never throw — Task 4 replaces this with a proper stub.
+    // Never throw — any failure anywhere above (malformed input, an
+    // unsupported construct, an @-function edge case the strip above didn't
+    // fully clean up, ...) degrades to a warned, raw-passthrough stub.
     warnings.push(`could not parse Webi formula (${e.message}) — left raw: ${formula}`);
     sigma = String(formula || '').replace(/^\s*=/, '').trim();
   }

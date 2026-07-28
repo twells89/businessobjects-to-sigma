@@ -53,5 +53,15 @@ check(feCtx.warnings.some(w => /ForEach/i.test(w)), 'ForEach warns for manual gr
 check(feCtx.placement === 'workbook', 'ForEach forces placement workbook');
 check(translateWebiFormula('=Sum([Revenue]) foreach ([Month])').warnings.some(w => /ForEach/.test(w)), 'lowercase foreach → canonical ForEach in warning');
 
+// ── Tier 4: warn + stub, never throw ─────────────────────────────────────────
+const nf = translateWebiFormula('=NoFilter(Sum([Revenue]))');
+check(nf.warnings.some(w => /NoFilter/.test(w) && /unfiltered element/i.test(w)), 'NoFilter → specific how-to warning');
+const at = translateWebiFormula('=@Prompt("Enter region")');
+check(at.warnings.some(w => /@Prompt/i.test(w) && /control|parameter/i.test(w)), '@Prompt → model as control/parameter');
+const bad = translateWebiFormula('=Sum([Revenue] ((( ');
+check(Array.isArray(bad.warnings) && typeof bad.sigma === 'string', 'malformed input degrades to warned stub, never throws');
+const unknown = translateWebiFormula('=NoSuchFn([X])');
+check(unknown.warnings.some(w => /NoSuchFn/i.test(w)), 'unknown function is flagged for manual review');
+
 console.log(`\n${failures ? '❌ ' + failures + ' failed' : '✅ all passed'}`);
 process.exit(failures ? 1 : 0);
