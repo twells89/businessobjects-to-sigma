@@ -105,11 +105,17 @@ export async function getWebiVariables(id) {
  * { document: { name, reports: [{ name, ...raw report element tree }], filters,
  *   variables } } plus the dataproviders (so the caller can map the doc to its
  * universe → DM). `elements` is passed through untouched (not re-shaped) so
- * each report element's own expression text — RWS calls this `dataExpression`
- * on a raw element, `formula`/`expression`/`definition` on a flattened one —
- * survives into normalizeWebiDocument()/normalizeBlock() unmodified; that's
- * what lets an in-place block-column formula (as opposed to a named variable)
- * get picked up and translated downstream.
+ * each report element's own in-place expression text — RWS calls this
+ * `dataExpression` on a raw element — survives unmodified into
+ * normalizeWebiDocument(). This document arrives as the RAW Raylight element
+ * tree (reports carry `.elements`, not a pre-flattened `.blocks`), so it is
+ * `walkRaylight()` — not `normalizeBlock()` (that one's for the friendly,
+ * already-flattened shape a discovery script might emit) — that reads this
+ * tree and captures each expression's formula into the block's
+ * `formulaByName`, alongside its name. Both walkRaylight() and normalizeBlock()
+ * feed the same downstream inline-formula translation path, so an in-place
+ * block-column formula (as opposed to a named variable) is picked up and
+ * translated regardless of which of the two shapes it started as.
  */
 export async function getWebiDocument(id) {
   const doc = await getJson(`/raylight/v1/documents/${id}`);

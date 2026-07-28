@@ -49,5 +49,19 @@ const r2 = convertWebiToWorkbook({ document: { name: 'D', reports: [ { name: 'R'
 const r2cols = r2.workbook.pages.flatMap(p => p.elements).flatMap(e => e.columns || []);
 check(r2cols.some(c => c.name === 'Bucket' && /If\(\[Order Fact View\/Revenue\] > 1000, "High", "Low"\)/.test(c.formula)), 'block-column dataExpression formula translated + qualified');
 
+// RAW Raylight element tree (reports carry `.elements`, NOT a pre-flattened
+// `.blocks`) — this is the shape getWebiDocument() actually produces on the
+// live migrate-webi.mjs path, routed through walkRaylight() rather than
+// normalizeBlock(). A dataExpression-carried inline formula on a dimension
+// must translate + qualify here too, exactly as it does on the friendly shape.
+const r3 = convertWebiToWorkbook({ document: { name: 'D', reports: [ { name: 'R', elements: [
+  { type: 'VTable', name: 'T', dataExpressions: [
+    { name: 'Bucket', qualification: 'dimension', dataExpression: '=If([Revenue] > 1000 ; "High" ; "Low")' },
+    { name: 'Net Revenue', qualification: 'measure' },
+  ] } ] } ], variables: [], filters: [] } },
+  { dataModelId: 'DM', dataModelElementId: 'VIEW', sourceName: 'Order Fact View', measureMap: {}, schemaVersion: 1 });
+const r3cols = r3.workbook.pages.flatMap(p => p.elements).flatMap(e => e.columns || []);
+check(r3cols.some(c => c.name === 'Bucket' && /If\(\[Order Fact View\/Revenue\] > 1000, "High", "Low"\)/.test(c.formula)), 'RAW Raylight (walkRaylight) dataExpression formula translated + qualified');
+
 console.log(`\n${failures ? '❌ ' + failures + ' failed' : '✅ all passed'}`);
 process.exit(failures ? 1 : 0);

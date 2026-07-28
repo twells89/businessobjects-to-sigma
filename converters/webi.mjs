@@ -156,15 +156,28 @@ function walkRaylight(node, out) {
     if (looksBlock) {
       const exprs = n.dataExpressions || n.expressions || [];
       const dims = [], meas = [];
+      // Same in-place formula capture as normalizeBlock (friendly shape): a
+      // raw Raylight expression carrying its own formula text — `dataExpression`
+      // is RWS's field name for this, `formula`/`expression`/`definition` cover
+      // other shapes — is kept alongside its name, NOT as a named report
+      // variable. Keyed under both the raw name and its displayName() form
+      // (mirroring normalizeBlock) so withInlineFormula resolves it whether
+      // blockToElement calls in with the raw name (measures) or the
+      // displayName()'d one (dimensions).
+      const formulaByName = {};
       for (const e of exprs) {
         const nm = e.name || e.label || e.expression || '';
         const q = (e.qualification || e.dataType || e.kind || '').toString().toLowerCase();
+        const distinctName = e.name || e.label; // not derived solely from `expression` — nothing to key a formula on otherwise
+        const formula = e.formula || e.dataExpression || e.expression || e.definition;
+        if (distinctName && formula) { formulaByName[distinctName] = formula; formulaByName[displayName(distinctName)] = formula; }
         if (/measure/.test(q)) meas.push(nm); else dims.push(nm);
       }
       out.push({
         kind: /cross/i.test(t) ? 'crosstab' : /chart/i.test(t) ? 'chart' : /cell/i.test(t) ? 'cell' : 'table',
         title: n.name || n.title, chartType: n.chartType || t,
         dimensions: dims.filter(Boolean), measures: meas.filter(Boolean), rows: [], cols: [],
+        formulaByName,
       });
     }
     // Recurse into containers.
