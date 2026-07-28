@@ -31,5 +31,16 @@ check(cols.some(c => c.name === 'Running Revenue' && /CumulativeSum/.test(c.form
 check(cols.every(c => !(c.name && `[${c.name}]` === c.formula)), 'no self-referential column formulas');
 check(r.dataModelAdditions.metrics.every(m => /Order Fact View\//.test(m.formula)), 'DM-addition formulas qualified by source name');
 
+// DM-addition measure resolves at the block column to the qualified DM ref, not Sum([...])
+const mcol = cols.find(c => c.name === 'Margin Pct');
+check(mcol && /^\[Order Fact View\/Margin Pct\]$/.test(mcol.formula), 'Margin Pct block col → qualified DM ref [Order Fact View/Margin Pct]');
+check(mcol && !/Sum\(/.test(mcol.formula), 'Margin Pct block col is NOT Sum([Margin Pct])');
+
+// dimension variable lands in the columns bucket (not metrics) and resolves to a qualified ref
+check(r.dataModelAdditions.columns.some(c => c.name === 'Region Bucket'), 'dimension variable → dataModelAdditions.columns');
+check(!r.dataModelAdditions.metrics.some(m => m.name === 'Region Bucket'), 'dimension variable NOT in metrics bucket');
+const rcol = cols.find(c => c.name === 'Region Bucket');
+check(rcol && /^\[Order Fact View\/Region Bucket\]$/.test(rcol.formula), 'Region Bucket block dim → qualified DM ref');
+
 console.log(`\n${failures ? '❌ ' + failures + ' failed' : '✅ all passed'}`);
 process.exit(failures ? 1 : 0);
