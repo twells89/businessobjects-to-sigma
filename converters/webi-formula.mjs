@@ -26,6 +26,10 @@ export const WINDOW_FN = {
 // as a CumulativeSum/CumulativeCount ratio rather than via WINDOW_FN.
 const WINDOW_SPECIAL = new Set(['runningaverage']);
 
+// Tier 3 context-operator canonical casing, independent of input case
+// (Webi source may use any casing — `foreach`, `FOREACH`, `ForEach`, ...).
+const CTX_CANON = { in: 'In', foreach: 'ForEach', forall: 'ForAll' };
+
 const AGG_FN = new Set(['sum', 'count', 'avg', 'average', 'min', 'max', 'median']);
 // Functions/literals that indicate a text-typed operand, so a '+' between them
 // is Webi string concatenation and must emit as Sigma's '&' (not numeric '+').
@@ -124,7 +128,7 @@ export function parse(toks) {
           const dims = [];
           if (peek() && peek().t === 'ref') { dims.push(next().v); while (peek() && peek().t === 'sep') { next(); if (peek() && peek().t === 'ref') dims.push(next().v); } }
           expect(')');
-          call.ctx = { op: kw.v.replace(/^\w/, c => c.toUpperCase()), dims };
+          call.ctx = { op: CTX_CANON[kw.v.toLowerCase()] || kw.v, dims };
         }
         return call;
       }

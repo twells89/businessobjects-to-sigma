@@ -51,6 +51,7 @@ check(inCtx.warnings.some(w => /context .*In.*Region/i.test(w)), 'In: emits a gr
 const feCtx = translateWebiFormula('=RunningSum([Revenue]) ForEach ([Month])');
 check(feCtx.warnings.some(w => /ForEach/i.test(w)), 'ForEach warns for manual grouping/reset review');
 check(feCtx.placement === 'workbook', 'ForEach forces placement workbook');
+check(translateWebiFormula('=Sum([Revenue]) foreach ([Month])').warnings.some(w => /ForEach/.test(w)), 'lowercase foreach → canonical ForEach in warning');
 
 console.log(`\n${failures ? '❌ ' + failures + ' failed' : '✅ all passed'}`);
 process.exit(failures ? 1 : 0);
