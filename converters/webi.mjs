@@ -29,7 +29,8 @@
 
 /** @typedef {{kind:'table'|'crosstab'|'chart'|'cell', title?:string,
  *   dimensions:string[], measures:string[], chartType?:string,
- *   rows?:string[], cols?:string[]}} WebiBlock */
+ *   rows?:string[], cols?:string[],
+ *   formulaByName?:Record<string,string>}} WebiBlock */
 /** @typedef {{name:string, blocks:WebiBlock[]}} WebiReport */
 /** @typedef {{name:string, qualification?:string, formula:string}} WebiVariable */
 /** @typedef {{name:string, reports:WebiReport[], filters:{name:string,expression?:string}[],
@@ -108,6 +109,26 @@ function normalizeBlock(b) {
   const dimsIn = b.dimensions || b.dims || b.axisDimensions || [];
   const measIn = b.measures || b.metrics || b.axisMeasures || [];
   const exprNames = arr => (arr || []).map(x => (typeof x === 'string' ? x : (x.name || x.label || x.expression || ''))).filter(Boolean);
+  // An in-place cell/column formula — a dimension/measure entry that is an
+  // OBJECT carrying its own formula/expression/definition (raw Raylight calls
+  // this `dataExpression`), NOT a named report variable — is kept alongside
+  // its plain name so blockToElement can translate + qualify it, taking
+  // precedence over the name-based variable/measureMap resolution. A plain
+  // string entry has no inline formula (existing name-only behavior).
+  const formulaByName = {};
+  const captureFormulas = arr => {
+    for (const x of (arr || [])) {
+      if (!x || typeof x !== 'object') continue;
+      const name = x.name || x.label;
+      if (!name) continue; // no distinct name (e.g. name derived solely from `expression`) — nothing to key a formula on
+      const formula = x.formula || x.dataExpression || x.expression || x.definition;
+      if (!formula) continue;
+      formulaByName[name] = formula;
+      formulaByName[displayName(name)] = formula;
+    }
+  };
+  captureFormulas(dimsIn);
+  captureFormulas(measIn);
   let kind = 'table';
   if (/cross|matrix|pivot/i.test(rawType)) kind = 'crosstab';
   else if (/chart|graph|plot/i.test(rawType)) kind = 'chart';
@@ -121,6 +142,7 @@ function normalizeBlock(b) {
     measures: exprNames(measIn),
     rows: exprNames(b.rows || b.rowAxis),
     cols: exprNames(b.cols || b.columnAxis),
+    formulaByName,
   };
 }
 
@@ -224,12 +246,28 @@ export function convertWebiToWorkbook(input, options = {}) {
   const resolvedMeasFormula = name => resolveRef(name, measFormula);
   const resolvedDimRef = name => resolveRef(name, dimRef);
 
+  // An inline block-column formula (block.formulaByName, from normalizeBlock —
+  // an in-place cell/column expression, NOT a named report variable) takes
+  // PRECEDENCE over the name-based resolveRef resolution above: an explicit
+  // per-column formula always wins over a name match. Wrapping the resolver
+  // per block (rather than threading `q`/formulaByName into blockToElement
+  // itself) keeps blockToElement's cell/chart/crosstab/table bodies — and
+  // Task 5's resolveRef path they already call through — completely
+  // untouched, so this can't regress them.
+  const withInlineFormula = (block, resolver) => (name) => {
+    const raw = block.formulaByName && (block.formulaByName[name] ?? block.formulaByName[displayName(name)]);
+    if (raw == null) return resolver(name);
+    const tr = translateWebiFormula(raw, {});
+    tr.warnings.forEach(w => warnings.push(`Block "${block.title || block.kind}": ${w}`));
+    return q(tr.sigma);
+  };
+
   const pages = [];
   for (const report of doc.reports) {
     const pageId = uid('page');
     const elements = [];
     for (const block of report.blocks) {
-      const el = blockToElement(block, src, resolvedMeasFormula, resolvedDimRef, warnings);
+      const el = blockToElement(block, src, withInlineFormula(block, resolvedMeasFormula), withInlineFormula(block, resolvedDimRef), warnings);
       if (el) elements.push(el);
       else warnings.push(`Report "${report.name}": block "${block.title || block.kind}" (${block.kind}) produced no element — review manually.`);
     }
