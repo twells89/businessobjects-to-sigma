@@ -5,7 +5,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "test": "node test/smoke.mjs",
+    "test": "node test/smoke.mjs && node test/webi-formula.test.mjs && node test/webi-integration.test.mjs",
     "discover": "node scripts/discover.mjs",
     "migrate:universe": "node scripts/migrate-universe.mjs",
     "migrate:webi": "node scripts/migrate-webi.mjs"

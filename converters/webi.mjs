@@ -31,7 +31,11 @@
  *   dimensions:string[], measures:string[], chartType?:string,
  *   rows?:string[], cols?:string[]}} WebiBlock */
 /** @typedef {{name:string, blocks:WebiBlock[]}} WebiReport */
-/** @typedef {{name:string, reports:WebiReport[], filters:{name:string,expression?:string}[]}} WebiDocument */
+/** @typedef {{name:string, qualification?:string, formula:string}} WebiVariable */
+/** @typedef {{name:string, reports:WebiReport[], filters:{name:string,expression?:string}[],
+ *   variables:WebiVariable[]}} WebiDocument */
+
+import { translateWebiFormula } from './webi-formula.mjs';
 
 let _seq = 0;
 function uid(prefix = 'el') { return `${prefix}-${(++_seq).toString(36)}${Math.random().toString(36).slice(2, 6)}`; }
@@ -88,7 +92,15 @@ export function normalizeWebiDocument(input) {
       filters.push({ name: f.name || f.filterName || 'Filter', expression: f.expression || f.definition || f.sql || f.condition });
     }
   }
-  return { name, reports, filters };
+
+  const variables = [];
+  const rawVars = root.variables || input?.variables;
+  if (Array.isArray(rawVars)) for (const v of rawVars) variables.push({
+    name: v.name || v.variableName || 'Variable',
+    qualification: (v.qualification || v.type || '').toString().toLowerCase() || undefined,
+    formula: v.formula || v.definition || v.expression || '',
+  });
+  return { name, reports, filters, variables };
 }
 
 function normalizeBlock(b) {
@@ -171,12 +183,53 @@ export function convertWebiToWorkbook(input, options = {}) {
   const dimRef = dim => q(`[${dim}]`);
   const measFormula = name => q(measureMap[name] || measureMap[displayName(name)] || `Sum([${displayName(name)}])`);
 
+  // ── Variables (Webi report-scoped formulas) → dataModelAdditions / calc cols ─
+  // A context-free variable (Tier 1/no window/no context-op) is a candidate DM
+  // metric or column — Task 7 will add it to the bound View element. A
+  // layout-dependent one (window fn or context operator forced `placement:
+  // 'workbook'`) can only live as a workbook calc column on the element that
+  // uses it, since it depends on the element's own grouping/partition.
+  const dataModelAdditions = { metrics: [], columns: [] };
+  const workbookVarFormula = new Map();   // variable name → qualified workbook formula
+  for (const v of doc.variables) {
+    if (!v.formula) continue;
+    const tr = translateWebiFormula(v.formula, { qualification: v.qualification });
+    tr.warnings.forEach(w => warnings.push(`Variable "${v.name}": ${w}`));
+    const qualified = q(tr.sigma);
+    if (tr.placement === 'dm') {
+      const bucket = tr.kind === 'measure' ? dataModelAdditions.metrics : dataModelAdditions.columns;
+      if (!bucket.some(x => x.name === v.name)) bucket.push({ id: uid('add'), name: v.name, formula: qualified });
+    } else {
+      workbookVarFormula.set(v.name, qualified);
+    }
+  }
+  // Names that will become DM columns/metrics (added by Task 7) — a block
+  // measure/dimension named after one of these resolves to a qualified ref
+  // into the View, not the plain-universe Sum([Name]) default.
+  const dmAdditionNames = new Set([...dataModelAdditions.metrics, ...dataModelAdditions.columns].map(x => x.name));
+
+  // Resolve a block dim/measure name to the right formula source, in order:
+  //   1. a workbook-placed variable → its own translated+qualified calc,
+  //   2. a DM-placed variable → a qualified ref `[sourceName/Name]` to the
+  //      metric/column Task 7 adds to the View (NOT Sum([Name])),
+  //   3. neither → unchanged existing behavior (fallback: measFormula/dimRef).
+  const resolveRef = (name, fallback) => {
+    const dn = displayName(name);
+    if (workbookVarFormula.has(name)) return workbookVarFormula.get(name);
+    if (workbookVarFormula.has(dn)) return workbookVarFormula.get(dn);
+    if (dmAdditionNames.has(name)) return q(`[${name}]`);
+    if (dmAdditionNames.has(dn)) return q(`[${dn}]`);
+    return fallback(name);
+  };
+  const resolvedMeasFormula = name => resolveRef(name, measFormula);
+  const resolvedDimRef = name => resolveRef(name, dimRef);
+
   const pages = [];
   for (const report of doc.reports) {
     const pageId = uid('page');
     const elements = [];
     for (const block of report.blocks) {
-      const el = blockToElement(block, src, measFormula, dimRef, warnings);
+      const el = blockToElement(block, src, resolvedMeasFormula, resolvedDimRef, warnings);
       if (el) elements.push(el);
       else warnings.push(`Report "${report.name}": block "${block.title || block.kind}" (${block.kind}) produced no element — review manually.`);
     }
@@ -208,6 +261,7 @@ export function convertWebiToWorkbook(input, options = {}) {
 
   return {
     workbook: { name: workbookName || doc.name, folderId, schemaVersion, pages },
+    dataModelAdditions,
     warnings,
     stats,
   };

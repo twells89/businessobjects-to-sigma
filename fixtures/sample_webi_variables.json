@@ -1,0 +1,15 @@
+{
+  "document": {
+    "name": "Retail Performance",
+    "variables": [
+      { "name": "Margin Pct", "qualification": "measure", "formula": "=Sum([Net Revenue]) / Sum([Gross Revenue])" },
+      { "name": "Running Revenue", "qualification": "measure", "formula": "=RunningSum([Net Revenue])" }
+    ],
+    "reports": [
+      { "name": "Revenue Overview", "blocks": [
+        { "kind": "VTable", "title": "Detail", "dimensions": ["Customer Region"], "measures": ["Net Revenue", "Margin Pct", "Running Revenue"] }
+      ] }
+    ],
+    "filters": []
+  }
+}
