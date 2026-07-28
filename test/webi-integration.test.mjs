@@ -129,5 +129,68 @@ check(r3cols.some(c => c.name === 'Bucket' && /If\(\[Order Fact View\/Revenue\] 
   check(JSON.stringify(rb.sections) === JSON.stringify(['Order Channel']), `walkRaylight captures sections (got ${JSON.stringify(rb && rb.sections)})`);
 }
 
+// ── Groupings emission (breaks → subtotals, sort, section, running-total) ─────
+{
+  const r = convertWebiToWorkbook({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', blocks: [
+      { kind: 'VTable', title: 'Summary', dimensions: ['Customer Region'], measures: ['Net Revenue'],
+        breaks: ['Customer Region'], sort: [{ name: 'Net Revenue', direction: 'descending' }] },
+    ] } ] } }, { dataModelId: 'DM', dataModelElementId: 'VIEW', sourceName: 'Order Fact View', measureMap: {}, schemaVersion: 1 });
+  const tbl = r.workbook.pages[0].elements.find(e => e.kind === 'table');
+  check(Array.isArray(tbl.groupings) && tbl.groupings.length === 1, 'table gains one grouping');
+  const g = tbl.groupings[0];
+  const regionCol = tbl.columns.find(c => c.name === 'Customer Region');
+  const netCol = tbl.columns.find(c => c.name === 'Net Revenue');
+  check(g.groupBy.length === 1 && g.groupBy[0] === regionCol.id, 'groupBy = Customer Region column id');
+  check(g.calculations.includes(netCol.id), 'calculations include the measure (subtotal)');
+  check(g.sort.length === 1 && g.sort[0].columnId === netCol.id && g.sort[0].direction === 'descending', 'sort is inside the grouping, right col + direction');
+
+  // running-total rewrite: a workbook RunningSum var → CumulativeSum([..]) → wrapped in Sum() inside a grouping
+  const r2 = convertWebiToWorkbook({ document: { name: 'D', filters: [],
+    variables: [{ name: 'Running Rev', qualification: 'measure', formula: '=RunningSum([Net Revenue])' }],
+    reports: [ { name: 'R', blocks: [
+      { kind: 'VTable', title: 'S', dimensions: ['Customer Region'], measures: ['Net Revenue', 'Running Rev'], breaks: ['Customer Region'] } ] } ] } },
+    { dataModelId: 'DM', dataModelElementId: 'VIEW', sourceName: 'Order Fact View', measureMap: {}, schemaVersion: 1 });
+  const tbl2 = r2.workbook.pages[0].elements.find(e => e.kind === 'table');
+  const runCol = tbl2.columns.find(c => c.name === 'Running Rev');
+  check(/^CumulativeSum\(Sum\(\[Order Fact View\/Net Revenue\]\)\)$/.test(runCol.formula), `group-level running total wrapped in Sum() (got ${runCol.formula})`);
+
+  // section → outermost group key + warning
+  const r3 = convertWebiToWorkbook({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', blocks: [
+      { kind: 'VTable', title: 'S', dimensions: ['Customer Region', 'Order Channel'], measures: ['Net Revenue'],
+        sections: ['Order Channel'], breaks: ['Customer Region'] } ] } ] } },
+    { dataModelId: 'DM', dataModelElementId: 'VIEW', sourceName: 'Order Fact View', measureMap: {}, schemaVersion: 1 });
+  const tbl3 = r3.workbook.pages[0].elements.find(e => e.kind === 'table');
+  const chanCol = tbl3.columns.find(c => c.name === 'Order Channel');
+  const regionCol3 = tbl3.columns.find(c => c.name === 'Customer Region');
+  check(JSON.stringify(tbl3.groupings[0].groupBy) === JSON.stringify([chanCol.id, regionCol3.id]), 'section is the OUTERMOST group key, then break');
+  check(r3.warnings.some(w => /Section .*Order Channel.* outer grouping/i.test(w)), 'section emits the approximation warning');
+
+  // no breaks/sections → no groupings key (back-compat)
+  const r4 = convertWebiToWorkbook({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', blocks: [ { kind: 'VTable', dimensions: ['Customer Region'], measures: ['Net Revenue'] } ] } ] } },
+    { dataModelId: 'DM', dataModelElementId: 'VIEW', sourceName: 'Order Fact View', measureMap: {}, schemaVersion: 1 });
+  const tbl4 = r4.workbook.pages[0].elements.find(e => e.kind === 'table');
+  check(!('groupings' in tbl4), 'no breaks/sections → no groupings key');
+
+  // sort without a break → ungrouped + warning (no guessed top-level sort)
+  const r5 = convertWebiToWorkbook({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', blocks: [ { kind: 'VTable', title: 'S', dimensions: ['Customer Region'], measures: ['Net Revenue'],
+        sort: [{ name: 'Net Revenue', direction: 'descending' }] } ] } ] } },
+    { dataModelId: 'DM', dataModelElementId: 'VIEW', sourceName: 'Order Fact View', measureMap: {}, schemaVersion: 1 });
+  const tbl5 = r5.workbook.pages[0].elements.find(e => e.kind === 'table');
+  check(!('groupings' in tbl5) && !('sort' in tbl5), 'sort without break → no grouping and no guessed sort field');
+  check(r5.warnings.some(w => /sort .* no break|ungrouped .* sort/i.test(w)), 'sort-without-break warns');
+
+  // missing break column → warn + skip, no throw
+  const r6 = convertWebiToWorkbook({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', blocks: [ { kind: 'VTable', dimensions: ['Customer Region'], measures: ['Net Revenue'], breaks: ['Nonexistent Dim'] } ] } ] } },
+    { dataModelId: 'DM', dataModelElementId: 'VIEW', sourceName: 'Order Fact View', measureMap: {}, schemaVersion: 1 });
+  const tbl6 = r6.workbook.pages[0].elements.find(e => e.kind === 'table');
+  check(!('groupings' in tbl6), 'unresolvable break → no grouping');
+  check(r6.warnings.some(w => /Nonexistent Dim.*not a column|break.*skipped/i.test(w)), 'unresolvable break warns');
+}
+
 console.log(`\n${failures ? '❌ ' + failures + ' failed' : '✅ all passed'}`);
 process.exit(failures ? 1 : 0);

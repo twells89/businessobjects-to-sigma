@@ -428,9 +428,51 @@ function blockToElement(block, src, measFormula, dimRef, warnings) {
   }
 
   // default: table
-  const cols = [], order = [];
-  for (const d of dims) { const id = uid('c'); cols.push({ id, name: d, formula: dimRef(d) }); order.push(id); }
-  for (const m of meas) { const id = uid('c'); cols.push({ id, name: displayName(m), formula: measFormula(m) }); order.push(id); }
+  const cols = [], order = [], colByName = new Map(), measColIds = [];
+  for (const d of dims) { const id = uid('c'); cols.push({ id, name: d, formula: dimRef(d) }); order.push(id); colByName.set(d, id); }
+  for (const m of meas) { const id = uid('c'); const nm = displayName(m); cols.push({ id, name: nm, formula: measFormula(m) }); order.push(id); colByName.set(nm, id); measColIds.push(id); }
   if (!cols.length) return null;
-  return { id: uid('tbl'), kind: 'table', name: block.title || 'Table', source: src, columns: cols, order };
+  const el = { id: uid('tbl'), kind: 'table', name: block.title || 'Table', source: src, columns: cols, order };
+  buildGroupings(block, el, colByName, measColIds, warnings);
+  return el;
+}
+
+// Build Sigma table `groupings` from a block's breaks/sections + sort.
+// Productionizes the Task-8 E2E harness's groupBySum:
+//   - group key order = sections (outermost) then breaks
+//   - calculations = every measure column id (per-group subtotals)
+//   - a bare-column CumulativeSum([X]) measure is rewritten to
+//     CumulativeSum(Sum([X])) so a running total is correct at the group level
+//   - sort lives INSIDE the grouping entry (a top-level table.sort 400s)
+// Mutates `tableEl` (adds `.groupings`, may rewrite a measure column formula).
+function buildGroupings(block, tableEl, colByName, measColIds, warnings) {
+  const groupNames = [...nameList(block.sections).map(displayName), ...nameList(block.breaks).map(displayName)];
+  const hasSort = (block.sort || []).length > 0;
+  if (!groupNames.length) {
+    if (hasSort) warnings.push(`Table "${tableEl.name}": sort present but no break/section — Sigma sort on an ungrouped table is not emitted (confirm the target and apply in Sigma).`);
+    return;
+  }
+  const groupBy = [];
+  for (const nm of groupNames) {
+    const id = colByName.get(nm) || colByName.get(displayName(nm));
+    if (!id) { warnings.push(`Table "${tableEl.name}": break/section "${nm}" is not a column on the table — skipped.`); continue; }
+    groupBy.push(id);
+  }
+  if (!groupBy.length) return;
+  // group-level running-total rewrite (bare-column CumulativeSum → wrap arg in Sum())
+  for (const c of tableEl.columns) {
+    const m = c.formula && c.formula.match(/^CumulativeSum\(\s*(\[[^\]]+\])\s*\)$/);
+    if (m) c.formula = `CumulativeSum(Sum(${m[1]}))`;
+  }
+  // sort → inside the grouping entry; default ascending on the outermost key
+  const sort = [];
+  for (const s of (block.sort || [])) {
+    const cid = colByName.get(s.name) || colByName.get(displayName(s.name));
+    if (cid) sort.push({ columnId: cid, direction: s.direction === 'descending' ? 'descending' : 'ascending' });
+    else warnings.push(`Table "${tableEl.name}": sort column "${s.name}" not found — skipped.`);
+  }
+  if (!sort.length) sort.push({ columnId: groupBy[0], direction: 'ascending' });
+  tableEl.groupings = [{ id: `grp-${tableEl.id}`, groupBy, calculations: measColIds.slice(), sort }];
+  const secs = nameList(block.sections);
+  if (secs.length) warnings.push(`Section "${secs.join(', ')}" approximated as an outer grouping — the master-detail band layout is not reproduced 1:1.`);
 }
