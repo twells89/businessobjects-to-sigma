@@ -485,18 +485,32 @@ const OTHER_RUNNING_CALCS = [
 ];
 
 // Webi alerter operator → Sigma conditionalFormats `condition`. Symbols pass
-// through; common word forms are mapped. (Exact Sigma strings for >=,<=,=,<>
-// are confirmed live in the E2E — adjust here if the API differs.)
+// through; common word forms are mapped. CONFIRMED LIVE (Task 3 E2E, CSA.TJ):
+// Sigma's `single` conditional format accepts `>`, `<`, `>=`, `<=`, `=`, `!=`
+// (each round-trips verbatim through POST → GET /v2/workbooks/{id}/spec). The
+// not-equal form is `!=`, NOT `<>` — posting `condition: '<>'` is rejected with
+// HTTP 400 ("Invalid kind: table", Sigma's generic unrecognized-enum error), so
+// every not-equal spelling maps to `!=`. `Between`/`NotBetween` are NOT accepted
+// on this path (any value shape 400s — see buildConditionalFormats) and are
+// warned + skipped, never mapped here.
 const CF_OP = {
-  '>': '>', '<': '<', '>=': '>=', '<=': '<=', '=': '=', '==': '=', '<>': '<>', '!=': '<>',
+  '>': '>', '<': '<', '>=': '>=', '<=': '<=', '=': '=', '==': '=', '<>': '!=', '!=': '!=',
   greaterthan: '>', lessthan: '<', greaterorequal: '>=', lessorequal: '<=',
-  equalto: '=', notequalto: '<>', greaterthanorequal: '>=', lessthanorequal: '<=',
+  equalto: '=', notequalto: '!=', greaterthanorequal: '>=', lessthanorequal: '<=',
 };
 // Emit element-level `conditionalFormats` from a block's alerters. Mutates `el`.
 // Only single-condition threshold rules with a mappable operator + a color
 // produce an entry; `between`, unmappable operators, missing columns, and
 // KPI/chart targets are warned and skipped. Border/size/content/image style
 // props were flagged `unsupported` at ingest and are warned here.
+//
+// Between is NOT emitted: confirmed live (Task 3 E2E) that Sigma's workbook-spec
+// POST has no native two-bound conditional format on this path — every shape
+// tried (`condition:'Between'|'between'|'NotBetween'` with value+value2, an
+// array value, min/max, value.min.max, or value alone; and `type:'between'|
+// 'range'`) is rejected HTTP 400. A valid single operator IGNORES a spurious
+// `value2`, so a range can't be smuggled through either. Warn + skip so we never
+// over-color by dropping one bound of the range.
 function buildConditionalFormats(block, el, colByName, warnings) {
   const rules = block.alerters || [];
   if (!rules.length) return;
@@ -504,14 +518,16 @@ function buildConditionalFormats(block, el, colByName, warnings) {
   for (const r of rules) {
     for (const u of (r.unsupported || [])) warnings.push(`${el.name}: alerter "${r.name || r.column}" uses "${u}" — not representable in a Sigma conditional format; color part kept, "${u}" dropped.`);
     const op = r.operator?.toString().toLowerCase();
-    if (r.value2 != null || op === 'between') { warnings.push(`${el.name}: alerter "${r.name || r.column}" uses a range/Between — not emitted (no single-condition Sigma equivalent); re-create in Sigma.`); continue; }
+    if (r.value2 != null || op === 'between' || op === 'notbetween') { warnings.push(`${el.name}: alerter "${r.name || r.column}" uses a range/Between — not emitted (Sigma has no native two-bound conditional format on the workbook-spec path — confirmed live); re-create in Sigma.`); continue; }
     const condition = CF_OP[r.operator] || CF_OP[op];
     if (!condition) { warnings.push(`${el.name}: alerter operator "${r.operator}" has no Sigma mapping — skipped.`); continue; }
     const cid = colByName.get(r.column) || colByName.get(displayName(r.column));
     if (!cid) { warnings.push(`${el.name}: alerter target "${r.column}" is not a column on the element — skipped.`); continue; }
     const style = {};
     if (r.style?.backgroundColor) style.backgroundColor = r.style.backgroundColor;
-    if (r.style?.color) style.color = r.style.color;   // text-color field name confirmed live in E2E
+    // Text color is the `color` field — confirmed live (Task 3 E2E): `color`
+    // round-trips through POST → GET spec; `fontColor` is silently dropped.
+    if (r.style?.color) style.color = r.style.color;
     if (!Object.keys(style).length) { warnings.push(`${el.name}: alerter "${r.name || r.column}" has no color to apply — skipped.`); continue; }
     out.push({ type: 'single', columnIds: [cid], condition, value: r.value, style });
   }

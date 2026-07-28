@@ -140,7 +140,7 @@ Set expectations with this before promising a Webi migration, and use it as the 
 | Table / crosstab / bar,line,pie,area,scatter,combo | 🟢 | mapped to table / pivot-table / matching chart; exotic viz → nearest Sigma equivalent |
 | Sections & breaks | 🟢 / 🟡 | **breaks → table `groupings` + per-group subtotals, auto** (running totals rewritten to `CumulativeSum(Sum(...))`). **Sections** fold in as the **outermost** group key (+ warning — the master-detail band layout isn't reproduced 1:1). A report-level **grand total is not auto-emitted** (warned) — enable the table's Totals in Sigma. |
 | Sorting | 🟢 | **carried automatically** — inside the grouping entry on a grouped/broken table (`groupings[].sort`), and as the element-level `sort` on an ungrouped table |
-| Conditional formatting / alerters | 🟡 | Sigma `conditionalFormats` (rules, scales, data bars) — re-author |
+| Conditional formatting / alerters | 🟢 / 🟡 | **Single-threshold color alerters → element-level `conditionalFormats` on tables & pivots, auto** (operators `>` `<` `>=` `<=` `=` `!=`; background + text `color`, round-trip-confirmed live). **Warned + skipped (re-author in Sigma):** `Between`/ranges (Sigma has **no native two-bound** conditional format on the spec path — confirmed live), gradient/`backgroundScale`/`fontScale`/data-bar scales, border / font-size / content / image effects, multi-condition alerters, and KPI-cell / chart alerters (Sigma CF is table/pivot only). |
 | Colors / fonts / borders | 🟡 | themes + element formatting; not 1:1 (expect design-system normalization) |
 | Embedded images / logos | 🟡 | Sigma image element — re-add |
 | Hidden content + show/hide | 🟡 | hidden columns/elements; dynamic → conditional visibility on a control |
@@ -170,7 +170,7 @@ Set expectations with this before promising a Webi migration, and use it as the 
 | Non-universe Excel data provider | 🟡 | Sigma CSV/Excel upload as a source — wire manually |
 | Query properties (refreshable, dup rows, trim) | 🟡 / n/a | data is live/refreshable; "distinct" toggle; `Trim`; some are Webi-only and safely dropped |
 
-**Finish-by-hand checklist (per migrated report):** heed every converter warning (`NoFilter`, `@Prompt`/`@Variable`/`@Select`, context operators), then in Sigma: enable totals/subtotals, re-apply sort, re-author conditional formats/alerters, wire filter/control scope + element links, re-add images/headers, and confirm any `In`/`ForEach`/`ForAll` grouping. Crystal Reports, Xcelsius/Design Studio/Lumira are out of scope.
+**Finish-by-hand checklist (per migrated report):** heed every converter warning (`NoFilter`, `@Prompt`/`@Variable`/`@Select`, context operators), then in Sigma: enable totals/subtotals, re-apply sort, re-author only the WARNED conditional formats/alerters (ranges/`Between`, gradients/scales, borders, KPI-cell — single-threshold color rules convert automatically), wire filter/control scope + element links, re-add images/headers, and confirm any `In`/`ForEach`/`ForAll` grouping. Crystal Reports, Xcelsius/Design Studio/Lumira are out of scope.
 
 ## Agent path (no scripts)
 

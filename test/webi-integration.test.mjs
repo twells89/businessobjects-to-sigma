@@ -342,8 +342,11 @@ check(r3cols.some(c => c.name === 'Bucket' && /If\(\[Order Fact View\/Revenue\] 
   check(cf.condition === '<' && cf.value === 100, 'operator + value mapped');
   check(cf.style.backgroundColor === '#ff0000' && cf.style.color === '#ffffff', 'style mapped');
 
-  // operator map
-  const ops = { '>':'>', '<':'<', '>=':'>=', '<=':'<=', '=':'=', '<>':'<>', 'greaterthan':'>', 'lessthan':'<', 'equalto':'=' };
+  // operator map — target strings CONFIRMED LIVE (Task 3 E2E, CSA.TJ): Sigma's
+  // `single` conditional format accepts `>`,`<`,`>=`,`<=`,`=`,`!=`; the
+  // not-equal form is `!=` (posting `<>` is HTTP 400), so every not-equal
+  // spelling (`<>`, `!=`, `notequalto`) maps to `!=`.
+  const ops = { '>':'>', '<':'<', '>=':'>=', '<=':'<=', '=':'=', '<>':'!=', '!=':'!=', 'notequalto':'!=', 'greaterthan':'>', 'lessthan':'<', 'equalto':'=' };
   for (const [webi, sigma] of Object.entries(ops)) {
     const rr = mk([{ kind: 'VTable', dimensions: ['Customer Region'], measures: ['Net Revenue'],
       alerters: [{ column: 'Net Revenue', operator: webi, value: 5, style: { backgroundColor: '#0f0' } }] }]);
