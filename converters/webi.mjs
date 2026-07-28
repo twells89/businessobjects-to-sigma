@@ -29,7 +29,9 @@
  *   dimensions:string[], measures:string[], chartType?:string,
  *   rows?:string[], cols?:string[],
  *   breaks?:string[], sort?:{name:string,direction:string}[], sections?:string[],
- *   formulaByName?:Record<string,string>}} WebiBlock */
+ *   formulaByName?:Record<string,string>,
+ *   alerters?:{name?:string,column:string,operator:string,value:any,value2?:any,
+ *     style:{backgroundColor?:string,color?:string},unsupported?:string[]}[]}} WebiBlock */
 /** @typedef {{name:string, blocks:WebiBlock[]}} WebiReport */
 /** @typedef {{name:string, qualification?:string, formula:string}} WebiVariable */
 /** @typedef {{name:string, reports:WebiReport[], filters:{name:string,expression?:string}[],
@@ -71,6 +73,29 @@ function sortList(arr) {
     const name = typeof x === 'string' ? x : (x && (x.name || x.label || x.column));
     const dir = (typeof x === 'object' && x && /desc/i.test(x.direction || x.order || '')) ? 'descending' : 'ascending';
     return name ? { name, direction: dir } : null;
+  }).filter(Boolean);
+}
+// Normalize a block's alerters (threshold rules). Each entry: a target column,
+// one comparison operator + value(s), and a style. Sub-alerts/conditions that
+// carry more than one condition are flagged in `unsupported` (Sigma `single`
+// is one condition); border/size/content/image style props are flagged too.
+function alerterList(arr) {
+  return (arr || []).map(a => {
+    if (!a || typeof a !== 'object') return null;
+    const column = a.column || a.on || a.targetColumn || a.cell;
+    const operator = (a.operator || a.op || a.condition || '').toString();
+    if (!column || !operator) return null;
+    const style = {};
+    const bg = a.style?.backgroundColor || a.backgroundColor || a.background;
+    const fg = a.style?.color || a.color || a.fontColor;
+    if (bg) style.backgroundColor = bg;
+    if (fg) style.color = fg;
+    const unsupported = [];
+    for (const k of ['border', 'fontSize', 'size', 'content', 'text', 'image']) {
+      if (a[k] != null || a.style?.[k] != null) unsupported.push(k);
+    }
+    if (Array.isArray(a.conditions) && a.conditions.length > 1) unsupported.push('multi-condition');
+    return { name: a.name, column, operator, value: a.value ?? a.operand ?? a.value1, value2: a.value2 ?? a.operand2, style, unsupported };
   }).filter(Boolean);
 }
 
@@ -158,6 +183,7 @@ function normalizeBlock(b) {
     breaks: nameList(b.breaks || b.breakBy || b.breakOn),
     sort: sortList(b.sort || b.sortBy || b.orderBy),
     sections: nameList(b.sections || b.sectionBy || b.sectionOn),
+    alerters: alerterList(b.alerters || b.conditionalFormats || b.alerts),
   };
 }
 
@@ -196,6 +222,7 @@ function walkRaylight(node, out) {
         breaks: nameList(n.breaks || n.breakBy),
         sort: sortList(n.sort || n.sortBy),
         sections: nameList(n.sections || n.sectionBy),
+        alerters: alerterList(n.alerters || n.alerts),
       });
     }
     // Recurse into containers.

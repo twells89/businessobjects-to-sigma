@@ -284,5 +284,32 @@ check(r3cols.some(c => c.name === 'Bucket' && /If\(\[Order Fact View\/Revenue\] 
     `no explicit sort → default ascending on outermost groupBy key (got ${JSON.stringify(tbl11.groupings[0].sort)})`);
 }
 
+// ── Alerter IR capture ───────────────────────────────────────────────────────
+{
+  const doc = normalizeWebiDocument({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', blocks: [
+      { kind: 'VTable', title: 'T', dimensions: ['Customer Region'], measures: ['Net Revenue'],
+        alerters: [
+          { name: 'LowRev', column: 'Net Revenue', operator: '<', value: 100, style: { backgroundColor: '#ff0000', color: '#ffffff' } },
+          { name: 'Ranged', column: 'Net Revenue', operator: 'between', value: 100, value2: 500, style: { backgroundColor: '#ffff00' } },
+        ] },
+    ] } ] } });
+  const a = doc.reports[0].blocks[0].alerters;
+  check(a.length === 2, `alerters captured (got ${a.length})`);
+  check(a[0].column === 'Net Revenue' && a[0].operator === '<' && a[0].value === 100, 'rule 0 fields');
+  check(a[0].style.backgroundColor === '#ff0000' && a[0].style.color === '#ffffff', 'rule 0 style');
+  check(a[1].operator === 'between' && a[1].value2 === 500, 'range rule keeps value2');
+  // raw Raylight path
+  const raw = normalizeWebiDocument({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', elements: [ { $type: 'VerticalTable', name: 'T',
+      dataExpressions: [ { name: 'Net Revenue', qualification: 'measure' } ],
+      alerters: [ { column: 'Net Revenue', operator: '>', value: 1000, style: { backgroundColor: '#00ff00' } } ] } ] } ] } });
+  check(raw.reports[0].blocks[0].alerters.length === 1, 'walkRaylight captures alerters');
+  // absent → []
+  const none = normalizeWebiDocument({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', blocks: [ { kind: 'VTable', dimensions: ['A'], measures: ['B'] } ] } ] } });
+  check(Array.isArray(none.reports[0].blocks[0].alerters) && none.reports[0].blocks[0].alerters.length === 0, 'no alerters → []');
+}
+
 console.log(`\n${failures ? '❌ ' + failures + ' failed' : '✅ all passed'}`);
 process.exit(failures ? 1 : 0);
