@@ -116,6 +116,62 @@ Report **variables** (`/variables`) are translated by `converters/webi-formula.m
 **Phase 4 — Verify**
 Query the saved objects (Sigma MCP `describe` + `query`, or the UI). The bar: real warehouse data, zero error-typed columns. Review every converter warning — predefined filters, `@Prompt`/`@Variable`/`@Select`/`@Aggregate_Aware`, and multi-table object SELECTs are surfaced for manual follow-up, not silently dropped. **If any looked-up column shows "multiple values,"** the relationship direction is wrong — see [Relationship direction](#relationship-direction-why-columns-come-back-as-multiple-values); flip the relationship so its source is the many/fact side.
 
+## Webi feature coverage (what auto-converts vs. finish by hand)
+
+Set expectations with this before promising a Webi migration, and use it as the manual-finish checklist after Phase 3. Legend: **🟢 auto** = the converters produce it working; **🟡 finish** = Sigma fully supports it but the agent rebuilds/wires it (the converter warns or emits a stub); **🔴 rebuild** = no direct path — re-model it. "Convert" here is agent-led: 🟡 items are expected finishing steps, not blockers.
+
+**Formulas & aggregation**
+
+| Webi | Status | What happens / what you do |
+|---|---|---|
+| Universe object SQL (SELECT, CASE, functions) | 🟢 | `bobj.mjs` maps functions, `CASE→If`; `@`-functions flagged |
+| Report variables — arithmetic / string / date / `If` | 🟢 | `webi-formula.mjs` translates |
+| `RunningSum` / `RunningCount` / `Previous` | 🟢 | → `CumulativeSum` / `CumulativeCount` / `Lag` (workbook calc column) |
+| `Rank`, `Percentage` (% of total) | 🟢 | → `Rank`/`RankDense`, `PercentOfTotal` |
+| Subtotals / grand totals | 🟡 | Sigma tables/pivots have native totals — enable on the element (not auto-set) |
+| Calculation context `In` / `ForEach` / `ForAll` | 🟡 | Parsed + **warned**: set the element grouping / window partition to the named dims and verify |
+| `NoFilter` | 🔴 | No direct equivalent — compute on a **separate unfiltered element** and reference it (warned) |
+| Nested vars / % of a report grand total | 🟢 | Not viewport-limited: Sigma computes aggregates/window fns over the **whole** warehouse result, so "only x rows rendered" is a non-issue |
+
+**Formatting & layout**
+
+| Webi | Status | What happens / what you do |
+|---|---|---|
+| Table / crosstab / bar,line,pie,area,scatter,combo | 🟢 | mapped to table / pivot-table / matching chart; exotic viz → nearest Sigma equivalent |
+| Sections & breaks | 🟡 | rebuild as table **grouping + subtotals** (or small-multiples); not auto-carried |
+| Sorting | 🟡 | native — re-apply on the element (Webi sort not carried) |
+| Conditional formatting / alerters | 🟡 | Sigma `conditionalFormats` (rules, scales, data bars) — re-author |
+| Colors / fonts / borders | 🟡 | themes + element formatting; not 1:1 (expect design-system normalization) |
+| Embedded images / logos | 🟡 | Sigma image element — re-add |
+| Hidden content + show/hide | 🟡 | hidden columns/elements; dynamic → conditional visibility on a control |
+| Fold/unfold, Drill | 🟡 | native grouping expand/collapse + drill-down/drill-anywhere — wire, not auto-mapped |
+| Report headers/footers, page numbers | 🟡 / 🔴 | top-of-page text/image elements + **export** header/footer & page numbers; no page numbers on the interactive canvas |
+| Relative (top/left) positioning | 🟡 | Sigma is a responsive **grid + containers** — rebuilt to grid, not pixel-mapped |
+
+**Filtering**
+
+| Webi | Status | What happens / what you do |
+|---|---|---|
+| Report / table / section filters | 🟡 | document filters → **unbound list controls** (best-effort); wire target + default; scope re-created as page control vs element filter |
+| Filter on a formula/variable, or on a measure | 🟡 | supported (calc-column filters; top-N / number-range / having) — set on the element |
+| Input controls | 🟡 | → Sigma controls (list / dropdown / date / top-N) |
+| Element links (ad-hoc cross-filter) | 🟡 | → cross-element filters / actions (control in spec, click-target wired in UI) |
+
+**Query panel & query merge**
+
+| Webi | Status | What happens / what you do |
+|---|---|---|
+| Custom SQL (override universe SQL) | 🟢 | → Sigma Custom SQL data element |
+| Merged objects; union / inner / left outer | 🟡 | model in the **data model** (relationships = many→one lookup; union element). Right outer → reframe as left |
+| Combined queries: Union / Intersect / Minus | 🟡 | Union native; Intersect/Minus via Custom SQL or semi/anti-join |
+| Subqueries; database rankings | 🟡 | joins / CTEs / Custom SQL; `Rank` + top-N pushed to the warehouse |
+| Prompts (`@Prompt`) | 🟡 | → Sigma controls/parameters (warned; can bind to filters or DM SQL) |
+| Condition "In list from **another query**" | 🔴 | Sigma has **no `IsIn`-against-another-element** (it silently errors) — remodel as a join / semi-join |
+| Non-universe Excel data provider | 🟡 | Sigma CSV/Excel upload as a source — wire manually |
+| Query properties (refreshable, dup rows, trim) | 🟡 / n/a | data is live/refreshable; "distinct" toggle; `Trim`; some are Webi-only and safely dropped |
+
+**Finish-by-hand checklist (per migrated report):** heed every converter warning (`NoFilter`, `@Prompt`/`@Variable`/`@Select`, context operators), then in Sigma: enable totals/subtotals, re-apply sort, re-author conditional formats/alerters, wire filter/control scope + element links, re-add images/headers, and confirm any `In`/`ForEach`/`ForAll` grouping. Crystal Reports, Xcelsius/Design Studio/Lumira are out of scope.
+
 ## Agent path (no scripts)
 
 If you're an agent with the Sigma data-model MCP available, you can skip `converters/bobj.mjs` and call the `convert_bobj_to_sigma` tool directly on the universe JSON from `getUniverse()`, then POST via the Sigma REST skill. The script path is the self-contained equivalent.
