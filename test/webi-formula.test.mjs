@@ -23,6 +23,8 @@ eq('=Sum([Revenue]) / Count([Order Id])', 'Sum([Revenue]) / Count([Order Id])', 
 check(translateWebiFormula('=Sum([Revenue])').kind === 'measure', 'outer aggregate → kind measure');
 check(translateWebiFormula('=[Region]', { qualification: 'dimension' }).kind === 'dimension', 'qualification dimension respected');
 check(translateWebiFormula('=[Revenue] - [Cost]').placement === 'dm', 'context-free → placement dm');
+check(translateWebiFormula('=Sum([Revenue]) / Count([Order Id])').kind === 'measure', 'ratio of aggregates → kind measure');
+check(translateWebiFormula('=[Region]').kind === 'dimension', 'bare ref, no qualification → kind dimension');
 
 console.log(`\n${failures ? '❌ ' + failures + ' failed' : '✅ all passed'}`);
 process.exit(failures ? 1 : 0);

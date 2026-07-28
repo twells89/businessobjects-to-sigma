@@ -33,6 +33,18 @@ function isTextNode(node) {
     default: return false;
   }
 }
+// Kind inference must find an aggregate ANYWHERE in the tree (e.g. a ratio of
+// two aggregates like `Sum(...) / Count(...)` has a `bin` root, not a `call`),
+// not only at the AST root — otherwise ratio-style measures misroute as dimensions.
+function hasAggregate(node) {
+  if (!node) return false;
+  switch (node.t) {
+    case 'call': return AGG_FN.has(node.name.toLowerCase()) || node.args.some(hasAggregate);
+    case 'bin': return hasAggregate(node.left) || hasAggregate(node.right);
+    case 'neg': return hasAggregate(node.arg);
+    default: return false;
+  }
+}
 
 // ── Tokenizer ────────────────────────────────────────────────────────────────
 export function tokenize(src) {
@@ -147,6 +159,6 @@ export function translateWebiFormula(formula, opts = {}) {
   }
   const kind = opts.qualification === 'measure' ? 'measure'
     : opts.qualification === 'dimension' || opts.qualification === 'detail' ? 'dimension'
-    : (state.ast && state.ast.t === 'call' && AGG_FN.has(state.ast.name.toLowerCase())) ? 'measure' : 'dimension';
+    : (state.ast && hasAggregate(state.ast)) ? 'measure' : 'dimension';
   return { sigma, kind, placement: state.placement, warnings };
 }
