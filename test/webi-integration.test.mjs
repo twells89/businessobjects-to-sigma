@@ -111,5 +111,23 @@ check(r3cols.some(c => c.name === 'Bucket' && /If\(\[Order Fact View\/Revenue\] 
   check(Array.isArray(b2.sections) && b2.sections.length === 0, 'no sections → []');
 }
 
+// RAW Raylight element tree (walkRaylight path, NOT normalizeBlock/`.blocks`) —
+// breaks/sort/sections must be captured here too, since this is the shape
+// getWebiDocument() actually produces on the live migrate-webi.mjs path.
+{
+  const rawDoc = normalizeWebiDocument({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', elements: [
+      { $type: 'VerticalTable', name: 'T',
+        dataExpressions: [ { name: 'Customer Region', qualification: 'dimension' }, { name: 'Net Revenue', qualification: 'measure' } ],
+        breaks: ['Customer Region'],
+        sort: [{ name: 'Net Revenue', direction: 'descending' }],
+        sections: ['Order Channel'] } ] } ] } });
+  const rb = rawDoc.reports[0].blocks[0];
+  check(rb && rb.dimensions.includes('Customer Region') && rb.measures.includes('Net Revenue'), 'walkRaylight recognized the raw table node (dims/measures populated)');
+  check(JSON.stringify(rb.breaks) === JSON.stringify(['Customer Region']), `walkRaylight captures breaks (got ${JSON.stringify(rb && rb.breaks)})`);
+  check(rb.sort.length === 1 && rb.sort[0].name === 'Net Revenue' && rb.sort[0].direction === 'descending', `walkRaylight captures sort (got ${JSON.stringify(rb && rb.sort)})`);
+  check(JSON.stringify(rb.sections) === JSON.stringify(['Order Channel']), `walkRaylight captures sections (got ${JSON.stringify(rb && rb.sections)})`);
+}
+
 console.log(`\n${failures ? '❌ ' + failures + ' failed' : '✅ all passed'}`);
 process.exit(failures ? 1 : 0);
