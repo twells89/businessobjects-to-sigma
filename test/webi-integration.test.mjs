@@ -309,6 +309,21 @@ check(r3cols.some(c => c.name === 'Bucket' && /If\(\[Order Fact View\/Revenue\] 
   const none = normalizeWebiDocument({ document: { name: 'D', variables: [], filters: [], reports: [
     { name: 'R', blocks: [ { kind: 'VTable', dimensions: ['A'], measures: ['B'] } ] } ] } });
   check(Array.isArray(none.reports[0].blocks[0].alerters) && none.reports[0].blocks[0].alerters.length === 0, 'no alerters → []');
+  // unsupported[] flagging: border/fontSize (style-nested) + multi-condition
+  const u = normalizeWebiDocument({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', blocks: [ { kind: 'VTable', dimensions: ['Customer Region'], measures: ['Net Revenue'], alerters: [
+      { column: 'Net Revenue', operator: '<', value: 1, border: '2px', style: { backgroundColor: '#f00', fontSize: 14 }, conditions: [{}, {}] } ] } ] } ] } });
+  const ur = u.reports[0].blocks[0].alerters[0];
+  check(ur.unsupported.includes('border') && ur.unsupported.includes('fontSize') && ur.unsupported.includes('multi-condition'),
+    `unsupported[] flags border + fontSize + multi-condition (got ${JSON.stringify(ur.unsupported)})`);
+  check(ur.style.backgroundColor === '#f00', 'color part still captured alongside unsupported flags');
+  // drop rule: missing column OR operator → not captured
+  const d = normalizeWebiDocument({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', blocks: [ { kind: 'VTable', dimensions: ['Customer Region'], measures: ['Net Revenue'], alerters: [
+      { operator: '<', value: 1, style: { backgroundColor: '#f00' } },       // no column
+      { column: 'Net Revenue', value: 1, style: { backgroundColor: '#f00' } }, // no operator
+    ] } ] } ] } });
+  check(d.reports[0].blocks[0].alerters.length === 0, 'rules missing column or operator are dropped');
 }
 
 console.log(`\n${failures ? '❌ ' + failures + ' failed' : '✅ all passed'}`);
