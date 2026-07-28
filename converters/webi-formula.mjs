@@ -90,6 +90,15 @@ export function tokenize(src) {
 }
 
 // ── Parser (shallow recursive descent with precedence) ───────────────────────
+// Returns `{ node, trailing }` — `trailing` is any tokens left unconsumed
+// after the single top-level `parseExpr()` call (empty for a well-formed
+// formula). parseExpr() stops as soon as it can't extend the expression any
+// further (e.g. hits a stray ref/ident with no operator joining it to what
+// came before); it does NOT require every token to be consumed, so input like
+// `Sum([A]) [B]` parses `Sum([A])` successfully and would otherwise silently
+// drop `[B]` with no error and no warning. The caller (translateWebiFormula)
+// surfaces `trailing` as a warning — never-throw still holds, this is a
+// warning, not a parse failure.
 export function parse(toks) {
   let p = 0;
   const peek = () => toks[p];
@@ -147,7 +156,14 @@ export function parse(toks) {
     throw new Error(`unexpected token ${t.t}:${t.v}`);
   }
   const node = parseExpr();
-  return node;
+  return { node, trailing: toks.slice(p) };
+}
+
+/** Render a leftover token back to source-ish text for a trailing-tokens warning. */
+function renderTok(t) {
+  if (t.t === 'ref') return `[${t.v}]`;
+  if (t.t === 'str') return `"${t.v}"`;
+  return t.v;
 }
 
 // ── Emitter ──────────────────────────────────────────────────────────────────
@@ -261,9 +277,15 @@ export function translateWebiFormula(formula, opts = {}) {
   try {
     let f = String(formula || '').replace(/^\s*=/, '').trim();
     f = stripAtFunctions(f, warnings);
-    const ast = parse(tokenize(f));
+    const { node: ast, trailing } = parse(tokenize(f));
     sigma = emit(ast, state);
     state.ast = ast;
+    // T3 fix: parseExpr() only has to parse ONE full expression — it can
+    // return successfully with tokens still left in the stream (see parse()'s
+    // docstring). Warn rather than silently truncate the input.
+    if (trailing.length) {
+      warnings.push(`trailing tokens ignored after '${sigma}' — review this formula: ${trailing.map(renderTok).join(' ')}`);
+    }
   } catch (e) {
     // Never throw — any failure anywhere above (malformed input, an
     // unsupported construct, an @-function edge case the strip above didn't

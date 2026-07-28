@@ -71,6 +71,10 @@ export async function getDataModelSpec(dataModelId) {
  * handed them, unmodified shape and all: some DM-spec GET responses nest
  * `pages` under `spec.spec.pages` rather than a flat `spec.pages` (the same
  * uncertainty `mergeAdditionsIntoView` already hedges — see dm-merge.mjs).
+ * Deliberately does NOT also tolerate a bare `spec.elements[]` shape — a live
+ * spec always carries `.pages`, and mergeAdditionsIntoView (dm-merge.mjs) was
+ * intentionally narrowed to the same two shapes so an in-place mutation there
+ * is guaranteed to be visible to this PUT (a mismatch would silently drop it).
  */
 export async function postDataModelSpec(dataModelId, spec) {
   const pages = spec.pages || spec.spec?.pages;

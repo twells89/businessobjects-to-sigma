@@ -465,6 +465,25 @@ async function main() {
     `In-context sum groups at the "${spotRegion}" grain: Regional Net Revenue (${spotFromTranslated}) ≈ independent raw grouped query (${spotFromRaw})`
   );
 
+  // ── Step 8: DM-placed DIMENSION path — previously untested end-to-end. The
+  // "Region Bucket" variable (fixtures/e2e_webi_variables.json) is context-free
+  // and qualification:"dimension", so it lands in dataModelAdditions.columns
+  // (a BARE-formula calc COLUMN merged onto the View by mergeAdditionsIntoView
+  // above) and the "Region Bucket Check" block resolves it via a QUALIFIED
+  // `[Order Fact View/Region Bucket]` ref — the sibling path to the DM-placed
+  // MEASURE path (dmMeasureInline) already exercised by Margin Pct/step 7, but
+  // never live-verified before this fix wave. describeWorkbook() above already
+  // covers "no error-typed column" for every element including this one; this
+  // step additionally confirms the column actually RESOLVES to sensible values
+  // on real data.
+  const bucketCheck = byName('Region Bucket Check');
+  if (!bucketCheck) throw new Error('Region Bucket Check element missing from the converted workbook.');
+  const bucketRows = await exportElementRows(workbookId, bucketCheck.id);
+  const bucketValues = bucketRows.map(r => r['Region Bucket']).filter(v => v != null && v !== '');
+  console.log(`\nRegion Bucket Check: ${bucketRows.length} row(s), ${bucketValues.length} non-empty "Region Bucket" value(s), distinct: ${JSON.stringify([...new Set(bucketValues)])}`);
+  check(bucketValues.length > 0, `Region Bucket Check returned ${bucketValues.length} non-empty "Region Bucket" value(s) (DM-placed dimension is not blank/broken)`);
+  check(bucketValues.every(v => v === 'West' || v === 'Other'), 'every "Region Bucket" value is "West" or "Other" (DM-placed dimension calc column resolves correctly on real data)');
+
   console.log(failures ? `\n❌ ${failures} assertion(s) failed — NOT green.` : '\n✅ all live tie-out assertions passed.');
 }
 

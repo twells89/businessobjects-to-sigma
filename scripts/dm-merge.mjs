@@ -3,12 +3,19 @@
 export function mergeAdditionsIntoView(spec, viewElementId, additions) {
   // Tolerate both a flat `spec.pages` and a nested `spec.spec.pages` shape —
   // the DM-spec GET response shape has been uncertain in this project (see
-  // migrate-universe.mjs's own `spec.pages || spec.spec?.pages || []` hedge),
-  // plus a bare `spec.elements` fallback for a flattened/no-pages response.
+  // migrate-universe.mjs's own `spec.pages || spec.spec?.pages || []` hedge).
+  //
+  // Deliberately NO bare `spec.elements[]` fallback here: scripts/sigma.mjs's
+  // postDataModelSpec (the PUT that writes this mutation back) only ever sends
+  // `spec.pages || spec.spec?.pages` — it has no matching bare-elements
+  // fallback. A live DM spec always carries `.pages`, so that fallback was
+  // dead weight; worse, if it ever DID fire, the mutation would land on
+  // `spec.elements` and be silently LOST on the PUT (postDataModelSpec would
+  // never see it). Keeping the two functions in lock-step on the shape they
+  // read/write is the point — see postDataModelSpec's docstring.
   const pages = spec.pages || spec.spec?.pages || [];
   const elements = pages.flatMap(p => p.elements || []);
-  const all = elements.length ? elements : (spec.elements || []);
-  const el = all.find(e => e.id === viewElementId);
+  const el = elements.find(e => e.id === viewElementId);
   if (!el) throw new Error(`View element ${viewElementId} not found in DM spec`);
   el.metrics = el.metrics || []; el.columns = el.columns || []; el.order = el.order || [];
   const taken = new Set([...el.columns, ...el.metrics].map(x => x.name).filter(Boolean));

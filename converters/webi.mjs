@@ -21,8 +21,6 @@
  *   chart                     → {bar,line,pie,area,...}-chart element
  *   free-standing measure cell→ kpi-chart element
  *   document / report filter  → workbook control (best-effort)
- *
- * NOTE: not committed to git yet (per request) — lives in ~/bobj-webi-converter/.
  */
 
 // ── IR ───────────────────────────────────────────────────────────────────────
@@ -224,6 +222,14 @@ export function convertWebiToWorkbook(input, options = {}) {
   // layout-dependent one (window fn or context operator forced `placement:
   // 'workbook'`) can only live as a workbook calc column on the element that
   // uses it, since it depends on the element's own grouping/partition.
+  //
+  // dataModelAdditions.metrics/columns formulas are BARE (unqualified), never
+  // q()-qualified: they land ON the View element they'll be merged into
+  // (scripts/dm-merge.mjs), so they reference that element's own sibling
+  // columns the same way any same-element DM metric/calc column does elsewhere
+  // in this project (see converters/bobj.mjs::translateBobjExpr — `Sum(Table.Col)`
+  // becomes a bare `Sum([Col])`, never `[TableView/Col]`). Qualifying a
+  // same-element formula would make it a self-referential cross-element path.
   const dataModelAdditions = { metrics: [], columns: [] };
   const workbookVarFormula = new Map();   // variable name → qualified workbook formula
   // A DM-placed MEASURE variable's INLINE translated+qualified formula (it
@@ -245,13 +251,33 @@ export function convertWebiToWorkbook(input, options = {}) {
     if (!v.formula) continue;
     const tr = translateWebiFormula(v.formula, { qualification: v.qualification });
     tr.warnings.forEach(w => warnings.push(`Variable "${v.name}": ${w}`));
+    // Two DISTINCT resolution forms for the SAME translated formula (tr.sigma),
+    // per the DM convention already established in bobj.mjs
+    // (translateBobjExpr): a formula that LIVES ON an element references that
+    // element's own sibling columns BARE (e.g. `Sum([Net Revenue])` on a table
+    // that itself has a "Net Revenue" column) — `[ElementName/Col]` is reserved
+    // for a CROSS-element lookup. A DM addition (below) lands ON the bound View
+    // element itself, so qualifying it would make it a self-referential
+    // cross-element path (`Sum([Order Fact View/Net Revenue])` placed ON "Order
+    // Fact View"). `qualified` is still correct — and used — for the WORKBOOK's
+    // inline resolution of a DM-placed variable: there, the calc column lives on
+    // a separate workbook element that reaches INTO the View from the outside,
+    // where `[sourceName/Col]` is a correct, live-verified (Task 8) cross-element
+    // reference.
     const qualified = q(tr.sigma);
     if (tr.placement === 'dm') {
       if (tr.kind === 'measure') {
-        if (!dataModelAdditions.metrics.some(x => x.name === v.name)) dataModelAdditions.metrics.push({ id: uid('add'), name: v.name, formula: qualified });
+        // DM addition: BARE (same-element sibling ref).
+        if (!dataModelAdditions.metrics.some(x => x.name === v.name)) dataModelAdditions.metrics.push({ id: uid('add'), name: v.name, formula: tr.sigma });
+        // Workbook inline resolution of this measure: QUALIFIED (cross-element,
+        // from the workbook into the View) — see dmMeasureInline's own comment.
         dmMeasureInline.set(v.name, qualified);
       } else {
-        if (!dataModelAdditions.columns.some(x => x.name === v.name)) dataModelAdditions.columns.push({ id: uid('add'), name: v.name, formula: qualified });
+        // DM addition: BARE (same-element sibling ref) — mirrors the measure
+        // case above; a DM-placed dimension's own formula (e.g. the If(...) that
+        // becomes a calc column on the View) references its sibling columns
+        // bare too.
+        if (!dataModelAdditions.columns.some(x => x.name === v.name)) dataModelAdditions.columns.push({ id: uid('add'), name: v.name, formula: tr.sigma });
         dmColumnNames.add(v.name);
       }
     } else {

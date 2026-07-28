@@ -5,7 +5,8 @@
       { "name": "Margin Pct", "qualification": "measure", "formula": "=Sum([Net Revenue]) / Sum([Gross Revenue])" },
       { "name": "Running Revenue", "qualification": "measure", "formula": "=RunningSum([Net Revenue])" },
       { "name": "Regional Net Revenue", "qualification": "measure", "formula": "=Sum([Net Revenue]) In ([Customer Region])" },
-      { "name": "All Time Net Revenue", "qualification": "measure", "formula": "=NoFilter(Sum([Net Revenue]))" }
+      { "name": "All Time Net Revenue", "qualification": "measure", "formula": "=NoFilter(Sum([Net Revenue]))" },
+      { "name": "Region Bucket", "qualification": "dimension", "formula": "=If([Customer Region] = \"West\" ; \"West\" ; \"Other\")" }
     ],
     "reports": [
       {
@@ -20,6 +21,9 @@
             "measures": ["Net Revenue", "Gross Revenue", "Regional Net Revenue", "Running Revenue"] },
           { "kind": "VTable", "title": "Region Raw Check",
             "dimensions": ["Customer Region"],
+            "measures": ["Net Revenue"] },
+          { "kind": "VTable", "title": "Region Bucket Check",
+            "dimensions": ["Customer Region", "Region Bucket"],
             "measures": ["Net Revenue"] }
         ]
       }

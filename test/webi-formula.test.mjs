@@ -64,5 +64,13 @@ check(Array.isArray(bad.warnings) && bad.warnings.length > 0 && typeof bad.sigma
 const unknown = translateWebiFormula('=NoSuchFn([X])');
 check(unknown.warnings.some(w => /NoSuchFn/i.test(w)), 'unknown function is flagged for manual review');
 
+// ── T3: trailing-token warning (parse() stops after ONE full expression) ────
+const trailing = translateWebiFormula('=Sum([A]) [B]');
+check(trailing.warnings.some(w => /trailing tokens ignored after/i.test(w) && /review this formula/i.test(w) && /\[B\]/.test(w)),
+  'trailing tokens after a complete expression produce a specific warning naming the ignored remainder, not silent truncation');
+check(trailing.sigma === 'Sum([A])', 'trailing-token formula still emits the successfully-parsed portion (never-throw)');
+check(!translateWebiFormula('=Sum([Revenue]) / Count([Order Id])').warnings.some(w => /trailing tokens/i.test(w)),
+  'a fully-consumed formula produces NO trailing-tokens warning');
+
 console.log(`\n${failures ? '❌ ' + failures + ' failed' : '✅ all passed'}`);
 process.exit(failures ? 1 : 0);
