@@ -28,6 +28,7 @@
 /** @typedef {{kind:'table'|'crosstab'|'chart'|'cell', title?:string,
  *   dimensions:string[], measures:string[], chartType?:string,
  *   rows?:string[], cols?:string[],
+ *   breaks?:string[], sort?:{name:string,direction:string}[], sections?:string[],
  *   formulaByName?:Record<string,string>}} WebiBlock */
 /** @typedef {{name:string, blocks:WebiBlock[]}} WebiReport */
 /** @typedef {{name:string, qualification?:string, formula:string}} WebiVariable */
@@ -58,6 +59,19 @@ const isHorizontalBar = t => /horizontal/i.test(t || '');
 function displayName(s) {
   if (!s) return '';
   return /[ ]/.test(s) ? s.replace(/\b\w/g, c => c.toUpperCase()) : s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// Normalize a breaks/sections list (strings or {name}) → string[] of names.
+function nameList(arr) {
+  return (arr || []).map(x => (typeof x === 'string' ? x : (x && (x.name || x.label || x.dimension)))).filter(Boolean);
+}
+// Normalize a sort list (strings or {name,direction}) → [{name,direction}].
+function sortList(arr) {
+  return (arr || []).map(x => {
+    const name = typeof x === 'string' ? x : (x && (x.name || x.label || x.column));
+    const dir = (typeof x === 'object' && x && /desc/i.test(x.direction || x.order || '')) ? 'descending' : 'ascending';
+    return name ? { name, direction: dir } : null;
+  }).filter(Boolean);
 }
 
 // ── Tolerant ingest → WebiDocument IR ────────────────────────────────────────
@@ -141,6 +155,9 @@ function normalizeBlock(b) {
     rows: exprNames(b.rows || b.rowAxis),
     cols: exprNames(b.cols || b.columnAxis),
     formulaByName,
+    breaks: nameList(b.breaks || b.breakBy || b.breakOn),
+    sort: sortList(b.sort || b.sortBy || b.orderBy),
+    sections: nameList(b.sections || b.sectionBy || b.sectionOn),
   };
 }
 
@@ -176,6 +193,9 @@ function walkRaylight(node, out) {
         title: n.name || n.title, chartType: n.chartType || t,
         dimensions: dims.filter(Boolean), measures: meas.filter(Boolean), rows: [], cols: [],
         formulaByName,
+        breaks: nameList(n.breaks || n.breakBy),
+        sort: sortList(n.sort || n.sortBy),
+        sections: nameList(n.sections || n.sectionBy),
       });
     }
     // Recurse into containers.

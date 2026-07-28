@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { convertWebiToWorkbook } from '../converters/webi.mjs';
+import { convertWebiToWorkbook, normalizeWebiDocument } from '../converters/webi.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = p => JSON.parse(readFileSync(join(root, p), 'utf8'));
@@ -88,6 +88,28 @@ const r3 = convertWebiToWorkbook({ document: { name: 'D', reports: [ { name: 'R'
   { dataModelId: 'DM', dataModelElementId: 'VIEW', sourceName: 'Order Fact View', measureMap: {}, schemaVersion: 1 });
 const r3cols = r3.workbook.pages.flatMap(p => p.elements).flatMap(e => e.columns || []);
 check(r3cols.some(c => c.name === 'Bucket' && /If\(\[Order Fact View\/Revenue\] > 1000, "High", "Low"\)/.test(c.formula)), 'RAW Raylight (walkRaylight) dataExpression formula translated + qualified');
+
+// ── Breaks / sort / sections IR capture ──────────────────────────────────────
+{
+  const doc = normalizeWebiDocument({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', blocks: [
+      { kind: 'VTable', title: 'T', dimensions: ['Customer Region', 'Order Channel'], measures: ['Net Revenue'],
+        breaks: ['Customer Region'],
+        sort: [{ name: 'Net Revenue', direction: 'descending' }],
+        sections: ['Order Channel'] },
+    ] } ] } });
+  const b = doc.reports[0].blocks[0];
+  check(JSON.stringify(b.breaks) === JSON.stringify(['Customer Region']), `breaks captured (got ${JSON.stringify(b.breaks)})`);
+  check(b.sort.length === 1 && b.sort[0].name === 'Net Revenue' && b.sort[0].direction === 'descending', `sort captured (got ${JSON.stringify(b.sort)})`);
+  check(JSON.stringify(b.sections) === JSON.stringify(['Order Channel']), `sections captured (got ${JSON.stringify(b.sections)})`);
+  // absent → empty arrays (back-compat)
+  const doc2 = normalizeWebiDocument({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', blocks: [ { kind: 'VTable', dimensions: ['A'], measures: ['B'] } ] } ] } });
+  const b2 = doc2.reports[0].blocks[0];
+  check(Array.isArray(b2.breaks) && b2.breaks.length === 0, 'no breaks → []');
+  check(Array.isArray(b2.sort) && b2.sort.length === 0, 'no sort → []');
+  check(Array.isArray(b2.sections) && b2.sections.length === 0, 'no sections → []');
+}
 
 console.log(`\n${failures ? '❌ ' + failures + ' failed' : '✅ all passed'}`);
 process.exit(failures ? 1 : 0);
