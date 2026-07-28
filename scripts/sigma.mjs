@@ -53,6 +53,24 @@ export async function getDataModelSpec(dataModelId) {
   return req('GET', `/v2/dataModels/${dataModelId}/spec`);
 }
 
+/**
+ * POST a full spec back to update an EXISTING data model in place (e.g. after
+ * merging dataModelAdditions into its View element).
+ *
+ * ASSUMPTION (unverified — confirm live in Task 8): mirrors the GET path
+ * (`/v2/dataModels/{id}/spec`) with POST for a full-spec replace, the same
+ * "code representation" convention `postDataModel`/`postWorkbook` use for
+ * create. Unlike `referenceWorkbookSchemaVersion`'s workbook-spec GET (which
+ * comes back as YAML text), `getDataModelSpec` above already round-trips as
+ * plain JSON (established by migrate-universe.mjs, pre-dating this task) — so
+ * this POST sends the merged object as JSON, not YAML. If the live endpoint
+ * differs (e.g. requires PUT, or a different path), Task 8's e2e harness will
+ * surface it as an HTTP error on this call.
+ */
+export async function postDataModelSpec(dataModelId, spec) {
+  return req('POST', `/v2/dataModels/${dataModelId}/spec`, spec, true);
+}
+
 /** Read the current workbook schemaVersion from any reference workbook (spec is YAML). */
 export async function referenceWorkbookSchemaVersion() {
   const list = await req('GET', '/v2/workbooks?limit=1');

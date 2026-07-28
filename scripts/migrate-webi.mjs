@@ -11,8 +11,9 @@
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { logon, getWebiDocument } from './bo-rws.mjs';
-import { postWorkbook, referenceWorkbookSchemaVersion } from './sigma.mjs';
+import { postWorkbook, referenceWorkbookSchemaVersion, getDataModelSpec, postDataModelSpec } from './sigma.mjs';
 import { convertWebiToWorkbook } from '../converters/webi.mjs';
+import { mergeAdditionsIntoView } from './dm-merge.mjs';
 
 const STATE = '.bo-state.json';
 
@@ -42,6 +43,20 @@ async function main() {
   });
   console.log('Converted document →', JSON.stringify(result.stats));
   result.warnings.forEach(w => console.log('  ⚠', w));
+
+  // Apply any DM-placed variables (context-free measures/dimensions) to the
+  // bound universe's View element BEFORE creating the workbook, so the
+  // workbook's qualified refs (e.g. [Order Fact View/Margin Pct]) resolve.
+  // mergeAdditionsIntoView dedupes by name against existing columns+metrics,
+  // so re-running this script against the same universe/document is safe —
+  // it will skip (not double-add) anything already merged in.
+  const additions = result.dataModelAdditions;
+  if (additions && (additions.metrics.length || additions.columns.length)) {
+    const spec = await getDataModelSpec(binding.dataModelId);
+    const merge = mergeAdditionsIntoView(spec, binding.viewElementId, additions);
+    console.log(`  DM additions: +${merge.addedMetrics} metrics, +${merge.addedColumns} cols${merge.skipped.length ? `, skipped ${merge.skipped.join(', ')}` : ''}`);
+    await postDataModelSpec(binding.dataModelId, spec);
+  }
 
   const workbookId = await postWorkbook(result.workbook);
   console.log('Workbook created:', workbookId);
