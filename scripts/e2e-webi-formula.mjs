@@ -254,6 +254,59 @@ function firstNumber(rows) {
   return NaN;
 }
 
+// ── conditionalFormats round-trip helpers ───────────────────────────────────
+// The workbook spec GET returns YAML. We don't ship a YAML parser (zero deps),
+// so extract just the one `conditionalFormats:` block by indentation and match
+// its scalars. `extractCFBlock` returns the block text (its own line + every
+// more-indented line, stopping at the next same-or-shallower key like `layout:`).
+
+function extractCFBlockAt(yaml, i) {
+  const baseIndent = (yaml.slice(0, i).match(/[^\n]*$/)?.[0] || '').length;
+  const lines = yaml.slice(i).split('\n');
+  const out = [lines[0]];
+  for (let k = 1; k < lines.length; k++) {
+    const l = lines[k];
+    if (l.trim() === '') { out.push(l); continue; }
+    if ((l.match(/^(\s*)/)?.[1].length ?? 0) <= baseIndent) break;
+    out.push(l);
+  }
+  return out.join('\n');
+}
+
+function extractCFBlock(yaml) {
+  const i = yaml.indexOf('conditionalFormats:');
+  return i < 0 ? '' : extractCFBlockAt(yaml, i);
+}
+
+// Every `conditionalFormats:` block in the spec (a workbook with >1 CF element —
+// e.g. the summary TABLE and the pivot both carry an alerter — persists >1
+// block). Each element has at most one such key, so advancing past the marker
+// finds each occurrence exactly once.
+function extractAllCFBlocks(yaml) {
+  const blocks = [];
+  let from = 0;
+  for (;;) {
+    const i = yaml.indexOf('conditionalFormats:', from);
+    if (i < 0) break;
+    blocks.push(extractCFBlockAt(yaml, i));
+    from = i + 'conditionalFormats:'.length;
+  }
+  return blocks;
+}
+
+// The one CF block whose rule targets `colId` (each element's CF references its
+// OWN column id, so this isolates a specific element's block even when several
+// elements carry conditionalFormats in the same persisted spec).
+const cfBlockForColumn = (yaml, colId) => extractAllCFBlocks(yaml).find(b => b.includes(colId)) || '';
+
+const reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// True iff a `condition: <op>` line for exactly `op` is present (quoted or not).
+// The trailing boundary stops `<` from matching a `<=` line (and `=` a `>=`).
+const condPresent = (block, op) => new RegExp(`condition:\\s*'?${reEsc(op)}'?\\s*($|\\n)`, 'm').test(block);
+// True iff a text-color (`color:`) line is present. `\ncolor:` won't match the
+// `backgroundColor:` line (capital C, and preceded by `background`).
+const colorFieldPresent = (block, hex) => new RegExp(`\\n\\s*color:\\s*'?${reEsc(hex)}'?`).test(block);
+
 async function main() {
   // ── Step 1: universe → data model ─────────────────────────────────────────
   const universeXml = readFileSync(join(root, 'fixtures/efashion_universe.xml'), 'utf8');
@@ -333,12 +386,81 @@ async function main() {
   check(/^CumulativeSum\(Sum\(\[.*Net Revenue\]\)\)$/.test(runningCol?.formula || ''),
     `Converter rewrote the running total to CumulativeSum(Sum(...)) (got ${runningCol?.formula})`);
 
+  // Guard: the CONVERTER (not this harness) emitted the conditionalFormats from
+  // the fixture's alerter on Region Summary — otherwise the round-trip gate
+  // below would prove nothing. `>` / value 30000 / bg #c8e6c9 / text #1b5e20.
+  const cfEmitted = (summary.conditionalFormats || [])[0];
+  check(Array.isArray(summary.conditionalFormats) && summary.conditionalFormats.length === 1 &&
+    cfEmitted?.type === 'single' && cfEmitted?.condition === '>' && cfEmitted?.value === 30000 &&
+    Array.isArray(cfEmitted?.columnIds) && cfEmitted.columnIds[0] === netColId &&
+    cfEmitted?.style?.backgroundColor === '#c8e6c9' && cfEmitted?.style?.color === '#1b5e20',
+    `Converter emitted conditionalFormats on Region Summary (single ">" 30000, bg+text color) — got ${JSON.stringify(cfEmitted)}`);
+
+  // Guard: the CONVERTER emitted conditionalFormats on the PIVOT too, from the
+  // fixture's crosstab alerter — SKILL.md advertises CF on "tables & pivots",
+  // and until this fix that pivot path was only structurally/offline verified.
+  // The `& pivots` claim is live-verified by the Step-5c round-trip below; this
+  // guard proves the converter (not the harness) produced the pivot CF, so the
+  // round-trip proves something. Distinct value (5000) + distinct colors
+  // (#bbdefb/#0d47a1) from the table's rule so the persisted pivot block is
+  // unambiguously the PIVOT's, not the table's, even by content.
+  const pivot = byName('Region x Segment Pivot');
+  if (!pivot) throw new Error('Region x Segment Pivot element missing from the converted workbook.');
+  check(pivot.kind === 'pivot-table', `Converter mapped the crosstab to a pivot-table element (got ${pivot.kind})`);
+  const pivotNetId = pivot.columns.find(c => c.name === 'Net Revenue')?.id;
+  const pivotCf = (pivot.conditionalFormats || [])[0];
+  check(Array.isArray(pivot.conditionalFormats) && pivot.conditionalFormats.length === 1 &&
+    pivotCf?.type === 'single' && pivotCf?.condition === '>' && pivotCf?.value === 5000 &&
+    Array.isArray(pivotCf?.columnIds) && pivotCf.columnIds[0] === pivotNetId &&
+    pivotCf?.style?.backgroundColor === '#bbdefb' && pivotCf?.style?.color === '#0d47a1',
+    `Converter emitted conditionalFormats on the pivot (single ">" 5000, bg+text color) — got ${JSON.stringify(pivotCf)}`);
+
   // ── Step 5: POST the workbook (converter output, unchanged) ────────────────
   const workbookId = await postWorkbook(wconv.workbook);
   if (!workbookId) throw new Error('postWorkbook did not return a workbookId.');
   created.workbookIds.push(workbookId);
   console.log('\nWorkbook created:', workbookId);
   console.log(`Open: ${SIGMA_BASE.replace(/^https:\/\/aws-api\./, 'https://app.')} → workbook ${workbookId}`);
+
+  // ── Step 5b: conditionalFormats ROUND-TRIP GATE (the feature under test) ───
+  // A format feature has no numeric tie-out — the gate is persistence. GET the
+  // just-POSTed workbook's spec back (YAML) and assert the alerter → Sigma
+  // conditionalFormats rule the converter put on Region Summary SURVIVED the
+  // POST intact: target column id + condition + value + BOTH style colors. This
+  // is a REAL round-trip against the live API on the actual converter output —
+  // never faked. (The converter-emitted shape was already guarded pre-POST.)
+  const wbYaml = await sigmaGet(`/v2/workbooks/${workbookId}/spec`);
+  const wbYamlStr = typeof wbYaml === 'string' ? wbYaml : JSON.stringify(wbYaml);
+  // The persisted spec now carries TWO CF elements (summary table + pivot).
+  // Select each element's block by its OWN column id rather than "first block"
+  // so neither gate can grab the other element's rule (order-independent).
+  const cfBlock = cfBlockForColumn(wbYamlStr, netColId);
+  console.log('\nPersisted conditionalFormats block — summary TABLE (GET /v2/workbooks/{id}/spec):\n' + (cfBlock || '(none)'));
+  check(!!cfBlock, 'CF round-trip: summary table kept a conditionalFormats block in the persisted spec');
+  check(cfBlock.includes(netColId), `CF round-trip: rule targets the Net Revenue column id (${netColId})`);
+  check(condPresent(cfBlock, '>'), 'CF round-trip: condition ">" persisted verbatim');
+  check(/value:\s*30000(\b|\.0*\b)/.test(cfBlock), 'CF round-trip: value 30000 persisted');
+  check(/backgroundColor:\s*'?#c8e6c9'?/.test(cfBlock), 'CF round-trip: backgroundColor #c8e6c9 persisted');
+  check(colorFieldPresent(cfBlock, '#1b5e20'), 'CF round-trip: text color persisted as `color` #1b5e20 (not fontColor)');
+
+  // ── Step 5c: conditionalFormats ROUND-TRIP GATE — PIVOT (the gap under fix) ─
+  // SKILL.md advertises CF on "tables & pivots, auto" but only the TABLE path
+  // was ever live-verified; the pivot path was offline/structural only, and
+  // this repo's own tables.md was already proven wrong once by the live API
+  // (Between/NotBetween). So LIVE-verify the pivot: isolate the PIVOT element's
+  // persisted conditionalFormats block (by its own Net Revenue column id) and
+  // assert the crosstab alerter → pivot-table conditionalFormats rule SURVIVED
+  // the POST intact — target column id + condition + value 5000 + BOTH distinct
+  // style colors. If this does NOT round-trip, the "& pivots" claim is false and
+  // must be corrected (converter restricted to tables + SKILL.md fixed).
+  const pivBlock = cfBlockForColumn(wbYamlStr, pivotNetId);
+  console.log('\nPersisted conditionalFormats block — PIVOT (GET /v2/workbooks/{id}/spec):\n' + (pivBlock || '(none)'));
+  check(!!pivBlock, 'CF round-trip (pivot): pivot-table kept a conditionalFormats block in the persisted spec');
+  check(pivBlock.includes(pivotNetId), `CF round-trip (pivot): rule targets the pivot Net Revenue column id (${pivotNetId})`);
+  check(condPresent(pivBlock, '>'), 'CF round-trip (pivot): condition ">" persisted verbatim');
+  check(/value:\s*5000(\b|\.0*\b)/.test(pivBlock), 'CF round-trip (pivot): value 5000 persisted');
+  check(/backgroundColor:\s*'?#bbdefb'?/.test(pivBlock), 'CF round-trip (pivot): backgroundColor #bbdefb persisted');
+  check(colorFieldPresent(pivBlock, '#0d47a1'), 'CF round-trip (pivot): text color persisted as `color` #0d47a1 (not fontColor)');
 
   // ── Step 6: describe — zero error-typed columns ───────────────────────────
   const { elements: wbElements, problems } = await describeWorkbook(workbookId);
@@ -504,6 +626,67 @@ async function main() {
   for (let i = 1; i < nonNullRegions.length; i++) if (String(nonNullRegions[i - 1]) < String(nonNullRegions[i])) { sortedDesc = false; break; }
   console.log(`\nUngrouped sort probe: ${sortProbeRows.length} row(s); non-null region sequence (first 10): ${JSON.stringify(nonNullRegions.slice(0, 10))}`);
   check(sortedDesc, `Ungrouped sort: element-level sort ordered the rows Customer-Region DESCENDING (${[...new Set(nonNullRegions)].join(' > ')})`);
+
+  // ── Step 10: conditionalFormats operator / text-color / Between live probes ─
+  // Resolve — and RE-CONFIRM on every run so they can't silently regress — the
+  // three open questions the converter's CF mapping depends on. Each is a
+  // harness-owned throwaway workbook (NOT converter output): one table over the
+  // View carrying only conditionalFormats. No warehouse query (POST + GET spec).
+  const cfProbeWb = (cfs) => ({
+    name: `E2E Webi CF Probe ${rnd()}`, folderId: FOLDER_ID, schemaVersion,
+    pages: [{ id: `page-${rnd()}`, name: 'P', elements: [{
+      id: `tbl-${rnd()}`, kind: 'table', name: 'CF',
+      source: { kind: 'data-model', dataModelId, elementId: view.id },
+      columns: [
+        { id: 'c-cfdim', name: 'Customer Region', formula: qcol('[Customer Region]') },
+        { id: 'c-cfval', name: 'Net Revenue', formula: qcol('[Net Revenue]') },
+      ],
+      order: ['c-cfdim', 'c-cfval'],
+      conditionalFormats: cfs,
+    }] }],
+  });
+  const getCFBlock = async (wbId) => {
+    const y = await sigmaGet(`/v2/workbooks/${wbId}/spec`);
+    return extractCFBlock(typeof y === 'string' ? y : JSON.stringify(y));
+  };
+  // Post a probe expected to FAIL (bad condition enum); return the error (or
+  // null if it unexpectedly succeeded — then keep the id for cleanup).
+  const expectReject = async (cfs) => {
+    try { const id = await postWorkbook(cfProbeWb(cfs)); if (id) created.workbookIds.push(id); return null; }
+    catch (e) { return e.message; }
+  };
+
+  // (a) OPERATORS — every string the converter's CF_OP can emit must be accepted
+  // and round-trip VERBATIM (this is the live source of truth CF_OP tracks).
+  const OP_SET = ['>', '<', '>=', '<=', '=', '!='];
+  const opProbeId = await postWorkbook(cfProbeWb(
+    OP_SET.map((op, k) => ({ type: 'single', columnIds: ['c-cfval'], condition: op, value: (k + 1) * 100, style: { backgroundColor: '#c8e6c9' } }))
+  ));
+  if (!opProbeId) throw new Error('CF operator probe POST returned no id');
+  created.workbookIds.push(opProbeId);
+  const opBlock = await getCFBlock(opProbeId);
+  console.log(`\nCF operator probe: persisted conditions → ${OP_SET.filter(op => condPresent(opBlock, op)).map(o => `"${o}"`).join(', ')}`);
+  for (const op of OP_SET) check(condPresent(opBlock, op), `CF operator "${op}" is accepted and round-trips verbatim (Sigma single condition)`);
+
+  // (b) NOT-EQUAL FORM — `<>` must be REJECTED (that is WHY CF_OP maps not-equal
+  // to `!=`, which (a) just proved round-trips). Asserting the rejection keeps
+  // that mapping honest.
+  const ltgtErr = await expectReject([{ type: 'single', columnIds: ['c-cfval'], condition: '<>', value: 1, style: { backgroundColor: '#c8e6c9' } }]);
+  check(!!ltgtErr, `CF not-equal: "<>" is REJECTED by the API — justifies mapping not-equal to "!=" (${(ltgtErr || 'UNEXPECTEDLY ACCEPTED').slice(0, 90)})`);
+
+  // (c) TEXT COLOR — `fontColor` is silently dropped on round-trip; `color` (the
+  // field the converter emits, already confirmed persisted in the Step-5b gate)
+  // is the correct one. POSTing fontColor succeeds but the field must NOT survive.
+  const fcProbeId = await postWorkbook(cfProbeWb([{ type: 'single', columnIds: ['c-cfval'], condition: '>', value: 1, style: { backgroundColor: '#c8e6c9', fontColor: '#1b5e20' } }]));
+  if (fcProbeId) created.workbookIds.push(fcProbeId);
+  const fcBlock = await getCFBlock(fcProbeId);
+  check(!/fontColor/i.test(fcBlock) && !colorFieldPresent(fcBlock, '#1b5e20'),
+    'CF text color: `fontColor` is silently dropped on round-trip — confirms `color` is the correct text-color field');
+
+  // (d) BETWEEN — a native two-bound "Between" is NOT accepted on the
+  // workbook-spec path (any value shape 400s), so the converter warns + skips.
+  const betweenErr = await expectReject([{ type: 'single', columnIds: ['c-cfval'], condition: 'Between', value: 100, value2: 500, style: { backgroundColor: '#c8e6c9' } }]);
+  check(!!betweenErr, `CF Between: a native two-bound "Between" conditional format is NOT accepted — converter warns + skips (${(betweenErr || 'UNEXPECTEDLY ACCEPTED').slice(0, 90)})`);
 
   console.log(failures ? `\n❌ ${failures} assertion(s) failed — NOT green.` : '\n✅ all live tie-out assertions passed.');
 }

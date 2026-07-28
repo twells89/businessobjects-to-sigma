@@ -284,5 +284,106 @@ check(r3cols.some(c => c.name === 'Bucket' && /If\(\[Order Fact View\/Revenue\] 
     `no explicit sort → default ascending on outermost groupBy key (got ${JSON.stringify(tbl11.groupings[0].sort)})`);
 }
 
+// ── Alerter IR capture ───────────────────────────────────────────────────────
+{
+  const doc = normalizeWebiDocument({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', blocks: [
+      { kind: 'VTable', title: 'T', dimensions: ['Customer Region'], measures: ['Net Revenue'],
+        alerters: [
+          { name: 'LowRev', column: 'Net Revenue', operator: '<', value: 100, style: { backgroundColor: '#ff0000', color: '#ffffff' } },
+          { name: 'Ranged', column: 'Net Revenue', operator: 'between', value: 100, value2: 500, style: { backgroundColor: '#ffff00' } },
+        ] },
+    ] } ] } });
+  const a = doc.reports[0].blocks[0].alerters;
+  check(a.length === 2, `alerters captured (got ${a.length})`);
+  check(a[0].column === 'Net Revenue' && a[0].operator === '<' && a[0].value === 100, 'rule 0 fields');
+  check(a[0].style.backgroundColor === '#ff0000' && a[0].style.color === '#ffffff', 'rule 0 style');
+  check(a[1].operator === 'between' && a[1].value2 === 500, 'range rule keeps value2');
+  // raw Raylight path
+  const raw = normalizeWebiDocument({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', elements: [ { $type: 'VerticalTable', name: 'T',
+      dataExpressions: [ { name: 'Net Revenue', qualification: 'measure' } ],
+      alerters: [ { column: 'Net Revenue', operator: '>', value: 1000, style: { backgroundColor: '#00ff00' } } ] } ] } ] } });
+  check(raw.reports[0].blocks[0].alerters.length === 1, 'walkRaylight captures alerters');
+  // absent → []
+  const none = normalizeWebiDocument({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', blocks: [ { kind: 'VTable', dimensions: ['A'], measures: ['B'] } ] } ] } });
+  check(Array.isArray(none.reports[0].blocks[0].alerters) && none.reports[0].blocks[0].alerters.length === 0, 'no alerters → []');
+  // unsupported[] flagging: border/fontSize (style-nested) + multi-condition
+  const u = normalizeWebiDocument({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', blocks: [ { kind: 'VTable', dimensions: ['Customer Region'], measures: ['Net Revenue'], alerters: [
+      { column: 'Net Revenue', operator: '<', value: 1, border: '2px', style: { backgroundColor: '#f00', fontSize: 14 }, conditions: [{}, {}] } ] } ] } ] } });
+  const ur = u.reports[0].blocks[0].alerters[0];
+  check(ur.unsupported.includes('border') && ur.unsupported.includes('fontSize') && ur.unsupported.includes('multi-condition'),
+    `unsupported[] flags border + fontSize + multi-condition (got ${JSON.stringify(ur.unsupported)})`);
+  check(ur.style.backgroundColor === '#f00', 'color part still captured alongside unsupported flags');
+  // drop rule: missing column OR operator → not captured
+  const d = normalizeWebiDocument({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', blocks: [ { kind: 'VTable', dimensions: ['Customer Region'], measures: ['Net Revenue'], alerters: [
+      { operator: '<', value: 1, style: { backgroundColor: '#f00' } },       // no column
+      { column: 'Net Revenue', value: 1, style: { backgroundColor: '#f00' } }, // no operator
+    ] } ] } ] } });
+  check(d.reports[0].blocks[0].alerters.length === 0, 'rules missing column or operator are dropped');
+}
+
+// ── conditionalFormats emission ──────────────────────────────────────────────
+{
+  const mk = (blocks) => convertWebiToWorkbook({ document: { name: 'D', variables: [], filters: [], reports: [ { name: 'R', blocks } ] } },
+    { dataModelId: 'DM', dataModelElementId: 'VIEW', sourceName: 'Order Fact View', measureMap: {}, schemaVersion: 1 });
+
+  // single threshold rule on a table → conditionalFormats entry
+  const r = mk([{ kind: 'VTable', title: 'T', dimensions: ['Customer Region'], measures: ['Net Revenue'],
+    alerters: [{ column: 'Net Revenue', operator: '<', value: 100, style: { backgroundColor: '#ff0000', color: '#ffffff' } }] }]);
+  const tbl = r.workbook.pages[0].elements.find(e => e.kind === 'table');
+  const netCol = tbl.columns.find(c => c.name === 'Net Revenue');
+  check(Array.isArray(tbl.conditionalFormats) && tbl.conditionalFormats.length === 1, 'table gains one conditionalFormat');
+  const cf = tbl.conditionalFormats[0];
+  check(cf.type === 'single' && JSON.stringify(cf.columnIds) === JSON.stringify([netCol.id]), 'targets the resolved column id');
+  check(cf.condition === '<' && cf.value === 100, 'operator + value mapped');
+  check(cf.style.backgroundColor === '#ff0000' && cf.style.color === '#ffffff', 'style mapped');
+
+  // operator map — target strings CONFIRMED LIVE (Task 3 E2E, CSA.TJ): Sigma's
+  // `single` conditional format accepts `>`,`<`,`>=`,`<=`,`=`,`!=`; the
+  // not-equal form is `!=` (posting `<>` is HTTP 400), so every not-equal
+  // spelling (`<>`, `!=`, `notequalto`) maps to `!=`.
+  const ops = { '>':'>', '<':'<', '>=':'>=', '<=':'<=', '=':'=', '<>':'!=', '!=':'!=', 'notequalto':'!=', 'greaterthan':'>', 'lessthan':'<', 'equalto':'=' };
+  for (const [webi, sigma] of Object.entries(ops)) {
+    const rr = mk([{ kind: 'VTable', dimensions: ['Customer Region'], measures: ['Net Revenue'],
+      alerters: [{ column: 'Net Revenue', operator: webi, value: 5, style: { backgroundColor: '#0f0' } }] }]);
+    const t = rr.workbook.pages[0].elements.find(e => e.kind === 'table');
+    check(t.conditionalFormats?.[0]?.condition === sigma, `operator "${webi}" → "${sigma}" (got ${t.conditionalFormats?.[0]?.condition})`);
+  }
+
+  // crosstab/pivot also gets conditionalFormats
+  const rp = mk([{ kind: 'CrossTab', title: 'P', rows: ['Customer Region'], cols: ['Order Channel'], measures: ['Net Revenue'],
+    alerters: [{ column: 'Net Revenue', operator: '>', value: 1000, style: { backgroundColor: '#0f0' } }] }]);
+  const piv = rp.workbook.pages[0].elements.find(e => e.kind === 'pivot-table');
+  check(Array.isArray(piv.conditionalFormats) && piv.conditionalFormats.length === 1, 'pivot gains conditionalFormats');
+
+  // between → warn + skip (no entry, no over-coloring)
+  const rb = mk([{ kind: 'VTable', dimensions: ['Customer Region'], measures: ['Net Revenue'],
+    alerters: [{ column: 'Net Revenue', operator: 'between', value: 100, value2: 500, style: { backgroundColor: '#ff0' } }] }]);
+  const tb = rb.workbook.pages[0].elements.find(e => e.kind === 'table');
+  check(!('conditionalFormats' in tb), 'between → no conditionalFormats entry (v1)');
+  check(rb.warnings.some(w => /between/i.test(w)), 'between → warned');
+
+  // unsupported style + missing column → warn + skip
+  const ru = mk([{ kind: 'VTable', dimensions: ['Customer Region'], measures: ['Net Revenue'],
+    alerters: [{ column: 'Net Revenue', operator: '<', value: 1, border: '2px', style: { backgroundColor: '#f00' } },
+               { column: 'Nope', operator: '<', value: 1, style: { backgroundColor: '#f00' } }] }]);
+  const tu = ru.workbook.pages[0].elements.find(e => e.kind === 'table');
+  check(tu.conditionalFormats.length === 1, 'unsupported border rule still emits color part; missing-col skipped');
+  check(ru.warnings.some(w => /border/i.test(w)) && ru.warnings.some(w => /Nope.*not a column|not a column.*Nope/i.test(w)), 'border + missing-column warned');
+
+  // KPI with an alerter → warn, no crash
+  const rk = mk([{ kind: 'Cell', title: 'K', measures: ['Net Revenue'], alerters: [{ column: 'Net Revenue', operator: '<', value: 1, style: { backgroundColor: '#f00' } }] }]);
+  check(rk.warnings.some(w => /alerter/i.test(w) && /(kpi|cell|tables\/pivots)/i.test(w)), 'KPI alerter → warned');
+
+  // no alerters → no key (back-compat)
+  const rn = mk([{ kind: 'VTable', dimensions: ['Customer Region'], measures: ['Net Revenue'] }]);
+  const tn = rn.workbook.pages[0].elements.find(e => e.kind === 'table');
+  check(!('conditionalFormats' in tn), 'no alerters → no conditionalFormats key');
+}
+
 console.log(`\n${failures ? '❌ ' + failures + ' failed' : '✅ all passed'}`);
 process.exit(failures ? 1 : 0);

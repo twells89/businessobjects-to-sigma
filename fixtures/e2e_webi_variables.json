@@ -20,14 +20,20 @@
             "dimensions": ["Customer Region"],
             "measures": ["Net Revenue", "Gross Revenue", "Regional Net Revenue", "Running Revenue"],
             "breaks": ["Customer Region"],
-            "sort": [{ "name": "Net Revenue", "direction": "descending" }] },
+            "sort": [{ "name": "Net Revenue", "direction": "descending" }],
+            "alerters": [{ "column": "Net Revenue", "operator": ">", "value": 30000, "style": { "backgroundColor": "#c8e6c9", "color": "#1b5e20" } }] },
           { "kind": "VTable", "title": "Region Raw Check",
             "dimensions": ["Customer Region"],
             "measures": ["Net Revenue"],
             "breaks": ["Customer Region"] },
           { "kind": "VTable", "title": "Region Bucket Check",
             "dimensions": ["Customer Region", "Region Bucket"],
-            "measures": ["Net Revenue"] }
+            "measures": ["Net Revenue"] },
+          { "kind": "CrossTab", "title": "Region x Segment Pivot",
+            "rows": ["Customer Region"],
+            "cols": ["Customer Segment"],
+            "measures": ["Net Revenue"],
+            "alerters": [{ "column": "Net Revenue", "operator": ">", "value": 5000, "style": { "backgroundColor": "#bbdefb", "color": "#0d47a1" } }] }
         ]
       }
     ],

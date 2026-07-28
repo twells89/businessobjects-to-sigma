@@ -29,7 +29,9 @@
  *   dimensions:string[], measures:string[], chartType?:string,
  *   rows?:string[], cols?:string[],
  *   breaks?:string[], sort?:{name:string,direction:string}[], sections?:string[],
- *   formulaByName?:Record<string,string>}} WebiBlock */
+ *   formulaByName?:Record<string,string>,
+ *   alerters?:{name?:string,column:string,operator:string,value:any,value2?:any,
+ *     style:{backgroundColor?:string,color?:string},unsupported?:string[]}[]}} WebiBlock */
 /** @typedef {{name:string, blocks:WebiBlock[]}} WebiReport */
 /** @typedef {{name:string, qualification?:string, formula:string}} WebiVariable */
 /** @typedef {{name:string, reports:WebiReport[], filters:{name:string,expression?:string}[],
@@ -71,6 +73,29 @@ function sortList(arr) {
     const name = typeof x === 'string' ? x : (x && (x.name || x.label || x.column));
     const dir = (typeof x === 'object' && x && /desc/i.test(x.direction || x.order || '')) ? 'descending' : 'ascending';
     return name ? { name, direction: dir } : null;
+  }).filter(Boolean);
+}
+// Normalize a block's alerters (threshold rules). Each entry: a target column,
+// one comparison operator + value(s), and a style. Sub-alerts/conditions that
+// carry more than one condition are flagged in `unsupported` (Sigma `single`
+// is one condition); border/size/content/image style props are flagged too.
+function alerterList(arr) {
+  return (arr || []).map(a => {
+    if (!a || typeof a !== 'object') return null;
+    const column = a.column || a.on || a.targetColumn || a.cell;
+    const operator = (a.operator || a.op || a.condition || '').toString();
+    if (!column || !operator) return null;
+    const style = {};
+    const bg = a.style?.backgroundColor || a.backgroundColor || a.background;
+    const fg = a.style?.color || a.color || a.fontColor;
+    if (bg) style.backgroundColor = bg;
+    if (fg) style.color = fg;
+    const unsupported = [];
+    for (const k of ['border', 'fontSize', 'size', 'content', 'text', 'image']) {
+      if (a[k] != null || a.style?.[k] != null) unsupported.push(k);
+    }
+    if (Array.isArray(a.conditions) && a.conditions.length > 1) unsupported.push('multi-condition');
+    return { name: a.name, column, operator, value: a.value ?? a.operand ?? a.value1, value2: a.value2 ?? a.operand2, style, unsupported };
   }).filter(Boolean);
 }
 
@@ -158,6 +183,7 @@ function normalizeBlock(b) {
     breaks: nameList(b.breaks || b.breakBy || b.breakOn),
     sort: sortList(b.sort || b.sortBy || b.orderBy),
     sections: nameList(b.sections || b.sectionBy || b.sectionOn),
+    alerters: alerterList(b.alerters || b.conditionalFormats || b.alerts),
   };
 }
 
@@ -196,6 +222,7 @@ function walkRaylight(node, out) {
         breaks: nameList(n.breaks || n.breakBy),
         sort: sortList(n.sort || n.sortBy),
         sections: nameList(n.sections || n.sectionBy),
+        alerters: alerterList(n.alerters || n.alerts),
       });
     }
     // Recurse into containers.
@@ -393,6 +420,7 @@ function blockToElement(block, src, measFormula, dimRef, warnings) {
   const meas = (block.measures || []);   // keep raw name for measureMap lookup
 
   if (block.kind === 'cell') {
+    if ((block.alerters || []).length) warnings.push(`Block "${block.title || block.kind}": alerter(s) on a ${block.kind} — Sigma conditional formatting applies to tables/pivots; re-create in Sigma.`);
     const m = meas[0] || dims[0];
     if (!m) return null;
     const vId = uid('v');
@@ -402,6 +430,7 @@ function blockToElement(block, src, measFormula, dimRef, warnings) {
   }
 
   if (block.kind === 'chart') {
+    if ((block.alerters || []).length) warnings.push(`Block "${block.title || block.kind}": alerter(s) on a ${block.kind} — Sigma conditional formatting applies to tables/pivots; re-create in Sigma.`);
     const kind = sigmaChartKind(block.chartType);
     if (!dims.length && !meas.length) return null;
     const xId = uid('x'), cols = [];
@@ -417,14 +446,16 @@ function blockToElement(block, src, measFormula, dimRef, warnings) {
   }
 
   if (block.kind === 'crosstab') {
-    const cols = [];
+    const cols = [], colByName = new Map();
     const rowIds = [], colIds_ = [], valIds = [];
-    for (const d of (block.rows && block.rows.length ? block.rows.map(displayName) : dims)) { const id = uid('r'); cols.push({ id, name: d, formula: dimRef(d) }); rowIds.push(id); }
-    for (const d of (block.cols || []).map(displayName)) { const id = uid('k'); cols.push({ id, name: d, formula: dimRef(d) }); colIds_.push(id); }
-    for (const m of meas) { const id = uid('v'); cols.push({ id, name: displayName(m), formula: measFormula(m) }); valIds.push(id); }
+    for (const d of (block.rows && block.rows.length ? block.rows.map(displayName) : dims)) { const id = uid('r'); cols.push({ id, name: d, formula: dimRef(d) }); rowIds.push(id); colByName.set(d, id); }
+    for (const d of (block.cols || []).map(displayName)) { const id = uid('k'); cols.push({ id, name: d, formula: dimRef(d) }); colIds_.push(id); colByName.set(d, id); }
+    for (const m of meas) { const id = uid('v'); const nm = displayName(m); cols.push({ id, name: nm, formula: measFormula(m) }); valIds.push(id); colByName.set(nm, id); }
     if (!rowIds.length && !colIds_.length) warnings.push(`Crosstab "${block.title || ''}" has no row/column axis — verify.`);
-    return { id: uid('pivot'), kind: 'pivot-table', name: block.title || 'Crosstab', source: src,
+    const el = { id: uid('pivot'), kind: 'pivot-table', name: block.title || 'Crosstab', source: src,
       columns: cols, rowsBy: rowIds.map(id => ({ id })), columnsBy: colIds_.map(id => ({ id })), values: valIds };
+    buildConditionalFormats(block, el, colByName, warnings);
+    return el;
   }
 
   // default: table
@@ -434,6 +465,7 @@ function blockToElement(block, src, measFormula, dimRef, warnings) {
   if (!cols.length) return null;
   const el = { id: uid('tbl'), kind: 'table', name: block.title || 'Table', source: src, columns: cols, order };
   buildGroupings(block, el, colByName, measColIds, warnings);
+  buildConditionalFormats(block, el, colByName, warnings);
   return el;
 }
 
@@ -451,6 +483,56 @@ const OTHER_RUNNING_CALCS = [
   [/^Lag\(\s*\[[^\]]+\]\s*\)$/, 'Lag'],
   [/^\(CumulativeSum\(\s*\[[^\]]+\]\s*\)\s*\/\s*CumulativeCount\(\s*\[[^\]]+\]\s*\)\)$/, 'RunningAverage ratio'],
 ];
+
+// Webi alerter operator → Sigma conditionalFormats `condition`. Symbols pass
+// through; common word forms are mapped. CONFIRMED LIVE (Task 3 E2E, CSA.TJ):
+// Sigma's `single` conditional format accepts `>`, `<`, `>=`, `<=`, `=`, `!=`
+// (each round-trips verbatim through POST → GET /v2/workbooks/{id}/spec). The
+// not-equal form is `!=`, NOT `<>` — posting `condition: '<>'` is rejected with
+// HTTP 400 ("Invalid kind: table", Sigma's generic unrecognized-enum error), so
+// every not-equal spelling maps to `!=`. `Between`/`NotBetween` are NOT accepted
+// on this path (any value shape 400s — see buildConditionalFormats) and are
+// warned + skipped, never mapped here.
+const CF_OP = {
+  '>': '>', '<': '<', '>=': '>=', '<=': '<=', '=': '=', '==': '=', '<>': '!=', '!=': '!=',
+  greaterthan: '>', lessthan: '<', greaterorequal: '>=', lessorequal: '<=',
+  equalto: '=', notequalto: '!=', greaterthanorequal: '>=', lessthanorequal: '<=',
+};
+// Emit element-level `conditionalFormats` from a block's alerters. Mutates `el`.
+// Only single-condition threshold rules with a mappable operator + a color
+// produce an entry; `between`, unmappable operators, missing columns, and
+// KPI/chart targets are warned and skipped. Border/size/content/image style
+// props were flagged `unsupported` at ingest and are warned here.
+//
+// Between is NOT emitted: confirmed live (Task 3 E2E) that Sigma's workbook-spec
+// POST has no native two-bound conditional format on this path — every shape
+// tried (`condition:'Between'|'between'|'NotBetween'` with value+value2, an
+// array value, min/max, value.min.max, or value alone; and `type:'between'|
+// 'range'`) is rejected HTTP 400. A valid single operator IGNORES a spurious
+// `value2`, so a range can't be smuggled through either. Warn + skip so we never
+// over-color by dropping one bound of the range.
+function buildConditionalFormats(block, el, colByName, warnings) {
+  const rules = block.alerters || [];
+  if (!rules.length) return;
+  const out = [];
+  for (const r of rules) {
+    for (const u of (r.unsupported || [])) warnings.push(`${el.name}: alerter "${r.name || r.column}" uses "${u}" — not representable in a Sigma conditional format; color part kept, "${u}" dropped.`);
+    const op = r.operator?.toString().toLowerCase();
+    if (r.value2 != null || op === 'between' || op === 'notbetween') { warnings.push(`${el.name}: alerter "${r.name || r.column}" uses a range/Between — not emitted (Sigma has no native two-bound conditional format on the workbook-spec path — confirmed live); re-create in Sigma.`); continue; }
+    const condition = CF_OP[r.operator] || CF_OP[op];
+    if (!condition) { warnings.push(`${el.name}: alerter operator "${r.operator}" has no Sigma mapping — skipped.`); continue; }
+    const cid = colByName.get(r.column) || colByName.get(displayName(r.column));
+    if (!cid) { warnings.push(`${el.name}: alerter target "${r.column}" is not a column on the element — skipped.`); continue; }
+    const style = {};
+    if (r.style?.backgroundColor) style.backgroundColor = r.style.backgroundColor;
+    // Text color is the `color` field — confirmed live (Task 3 E2E): `color`
+    // round-trips through POST → GET spec; `fontColor` is silently dropped.
+    if (r.style?.color) style.color = r.style.color;
+    if (!Object.keys(style).length) { warnings.push(`${el.name}: alerter "${r.name || r.column}" has no color to apply — skipped.`); continue; }
+    out.push({ type: 'single', columnIds: [cid], condition, value: r.value, style });
+  }
+  if (out.length) el.conditionalFormats = out;
+}
 
 // Build Sigma table `groupings` (and, for an ungrouped table, an element-level
 // `sort`) from a block's breaks/sections + sort. Productionizes the Task-8 E2E
