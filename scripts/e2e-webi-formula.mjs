@@ -260,9 +260,7 @@ function firstNumber(rows) {
 // its scalars. `extractCFBlock` returns the block text (its own line + every
 // more-indented line, stopping at the next same-or-shallower key like `layout:`).
 
-function extractCFBlock(yaml) {
-  const i = yaml.indexOf('conditionalFormats:');
-  if (i < 0) return '';
+function extractCFBlockAt(yaml, i) {
   const baseIndent = (yaml.slice(0, i).match(/[^\n]*$/)?.[0] || '').length;
   const lines = yaml.slice(i).split('\n');
   const out = [lines[0]];
@@ -274,6 +272,32 @@ function extractCFBlock(yaml) {
   }
   return out.join('\n');
 }
+
+function extractCFBlock(yaml) {
+  const i = yaml.indexOf('conditionalFormats:');
+  return i < 0 ? '' : extractCFBlockAt(yaml, i);
+}
+
+// Every `conditionalFormats:` block in the spec (a workbook with >1 CF element —
+// e.g. the summary TABLE and the pivot both carry an alerter — persists >1
+// block). Each element has at most one such key, so advancing past the marker
+// finds each occurrence exactly once.
+function extractAllCFBlocks(yaml) {
+  const blocks = [];
+  let from = 0;
+  for (;;) {
+    const i = yaml.indexOf('conditionalFormats:', from);
+    if (i < 0) break;
+    blocks.push(extractCFBlockAt(yaml, i));
+    from = i + 'conditionalFormats:'.length;
+  }
+  return blocks;
+}
+
+// The one CF block whose rule targets `colId` (each element's CF references its
+// OWN column id, so this isolates a specific element's block even when several
+// elements carry conditionalFormats in the same persisted spec).
+const cfBlockForColumn = (yaml, colId) => extractAllCFBlocks(yaml).find(b => b.includes(colId)) || '';
 
 const reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // True iff a `condition: <op>` line for exactly `op` is present (quoted or not).
@@ -372,6 +396,25 @@ async function main() {
     cfEmitted?.style?.backgroundColor === '#c8e6c9' && cfEmitted?.style?.color === '#1b5e20',
     `Converter emitted conditionalFormats on Region Summary (single ">" 30000, bg+text color) — got ${JSON.stringify(cfEmitted)}`);
 
+  // Guard: the CONVERTER emitted conditionalFormats on the PIVOT too, from the
+  // fixture's crosstab alerter — SKILL.md advertises CF on "tables & pivots",
+  // and until this fix that pivot path was only structurally/offline verified.
+  // The `& pivots` claim is live-verified by the Step-5c round-trip below; this
+  // guard proves the converter (not the harness) produced the pivot CF, so the
+  // round-trip proves something. Distinct value (5000) + distinct colors
+  // (#bbdefb/#0d47a1) from the table's rule so the persisted pivot block is
+  // unambiguously the PIVOT's, not the table's, even by content.
+  const pivot = byName('Region x Segment Pivot');
+  if (!pivot) throw new Error('Region x Segment Pivot element missing from the converted workbook.');
+  check(pivot.kind === 'pivot-table', `Converter mapped the crosstab to a pivot-table element (got ${pivot.kind})`);
+  const pivotNetId = pivot.columns.find(c => c.name === 'Net Revenue')?.id;
+  const pivotCf = (pivot.conditionalFormats || [])[0];
+  check(Array.isArray(pivot.conditionalFormats) && pivot.conditionalFormats.length === 1 &&
+    pivotCf?.type === 'single' && pivotCf?.condition === '>' && pivotCf?.value === 5000 &&
+    Array.isArray(pivotCf?.columnIds) && pivotCf.columnIds[0] === pivotNetId &&
+    pivotCf?.style?.backgroundColor === '#bbdefb' && pivotCf?.style?.color === '#0d47a1',
+    `Converter emitted conditionalFormats on the pivot (single ">" 5000, bg+text color) — got ${JSON.stringify(pivotCf)}`);
+
   // ── Step 5: POST the workbook (converter output, unchanged) ────────────────
   const workbookId = await postWorkbook(wconv.workbook);
   if (!workbookId) throw new Error('postWorkbook did not return a workbookId.');
@@ -387,14 +430,37 @@ async function main() {
   // is a REAL round-trip against the live API on the actual converter output —
   // never faked. (The converter-emitted shape was already guarded pre-POST.)
   const wbYaml = await sigmaGet(`/v2/workbooks/${workbookId}/spec`);
-  const cfBlock = extractCFBlock(typeof wbYaml === 'string' ? wbYaml : JSON.stringify(wbYaml));
-  console.log('\nPersisted conditionalFormats block (GET /v2/workbooks/{id}/spec):\n' + (cfBlock || '(none)'));
+  const wbYamlStr = typeof wbYaml === 'string' ? wbYaml : JSON.stringify(wbYaml);
+  // The persisted spec now carries TWO CF elements (summary table + pivot).
+  // Select each element's block by its OWN column id rather than "first block"
+  // so neither gate can grab the other element's rule (order-independent).
+  const cfBlock = cfBlockForColumn(wbYamlStr, netColId);
+  console.log('\nPersisted conditionalFormats block — summary TABLE (GET /v2/workbooks/{id}/spec):\n' + (cfBlock || '(none)'));
   check(!!cfBlock, 'CF round-trip: summary table kept a conditionalFormats block in the persisted spec');
   check(cfBlock.includes(netColId), `CF round-trip: rule targets the Net Revenue column id (${netColId})`);
   check(condPresent(cfBlock, '>'), 'CF round-trip: condition ">" persisted verbatim');
   check(/value:\s*30000(\b|\.0*\b)/.test(cfBlock), 'CF round-trip: value 30000 persisted');
   check(/backgroundColor:\s*'?#c8e6c9'?/.test(cfBlock), 'CF round-trip: backgroundColor #c8e6c9 persisted');
   check(colorFieldPresent(cfBlock, '#1b5e20'), 'CF round-trip: text color persisted as `color` #1b5e20 (not fontColor)');
+
+  // ── Step 5c: conditionalFormats ROUND-TRIP GATE — PIVOT (the gap under fix) ─
+  // SKILL.md advertises CF on "tables & pivots, auto" but only the TABLE path
+  // was ever live-verified; the pivot path was offline/structural only, and
+  // this repo's own tables.md was already proven wrong once by the live API
+  // (Between/NotBetween). So LIVE-verify the pivot: isolate the PIVOT element's
+  // persisted conditionalFormats block (by its own Net Revenue column id) and
+  // assert the crosstab alerter → pivot-table conditionalFormats rule SURVIVED
+  // the POST intact — target column id + condition + value 5000 + BOTH distinct
+  // style colors. If this does NOT round-trip, the "& pivots" claim is false and
+  // must be corrected (converter restricted to tables + SKILL.md fixed).
+  const pivBlock = cfBlockForColumn(wbYamlStr, pivotNetId);
+  console.log('\nPersisted conditionalFormats block — PIVOT (GET /v2/workbooks/{id}/spec):\n' + (pivBlock || '(none)'));
+  check(!!pivBlock, 'CF round-trip (pivot): pivot-table kept a conditionalFormats block in the persisted spec');
+  check(pivBlock.includes(pivotNetId), `CF round-trip (pivot): rule targets the pivot Net Revenue column id (${pivotNetId})`);
+  check(condPresent(pivBlock, '>'), 'CF round-trip (pivot): condition ">" persisted verbatim');
+  check(/value:\s*5000(\b|\.0*\b)/.test(pivBlock), 'CF round-trip (pivot): value 5000 persisted');
+  check(/backgroundColor:\s*'?#bbdefb'?/.test(pivBlock), 'CF round-trip (pivot): backgroundColor #bbdefb persisted');
+  check(colorFieldPresent(pivBlock, '#0d47a1'), 'CF round-trip (pivot): text color persisted as `color` #0d47a1 (not fontColor)');
 
   // ── Step 6: describe — zero error-typed columns ───────────────────────────
   const { elements: wbElements, problems } = await describeWorkbook(workbookId);
