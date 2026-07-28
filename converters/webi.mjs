@@ -28,6 +28,7 @@
 /** @typedef {{kind:'table'|'crosstab'|'chart'|'cell', title?:string,
  *   dimensions:string[], measures:string[], chartType?:string,
  *   rows?:string[], cols?:string[],
+ *   breaks?:string[], sort?:{name:string,direction:string}[], sections?:string[],
  *   formulaByName?:Record<string,string>}} WebiBlock */
 /** @typedef {{name:string, blocks:WebiBlock[]}} WebiReport */
 /** @typedef {{name:string, qualification?:string, formula:string}} WebiVariable */
@@ -58,6 +59,19 @@ const isHorizontalBar = t => /horizontal/i.test(t || '');
 function displayName(s) {
   if (!s) return '';
   return /[ ]/.test(s) ? s.replace(/\b\w/g, c => c.toUpperCase()) : s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// Normalize a breaks/sections list (strings or {name}) → string[] of names.
+function nameList(arr) {
+  return (arr || []).map(x => (typeof x === 'string' ? x : (x && (x.name || x.label || x.dimension)))).filter(Boolean);
+}
+// Normalize a sort list (strings or {name,direction}) → [{name,direction}].
+function sortList(arr) {
+  return (arr || []).map(x => {
+    const name = typeof x === 'string' ? x : (x && (x.name || x.label || x.column));
+    const dir = (typeof x === 'object' && x && /desc/i.test(x.direction || x.order || '')) ? 'descending' : 'ascending';
+    return name ? { name, direction: dir } : null;
+  }).filter(Boolean);
 }
 
 // ── Tolerant ingest → WebiDocument IR ────────────────────────────────────────
@@ -141,6 +155,9 @@ function normalizeBlock(b) {
     rows: exprNames(b.rows || b.rowAxis),
     cols: exprNames(b.cols || b.columnAxis),
     formulaByName,
+    breaks: nameList(b.breaks || b.breakBy || b.breakOn),
+    sort: sortList(b.sort || b.sortBy || b.orderBy),
+    sections: nameList(b.sections || b.sectionBy || b.sectionOn),
   };
 }
 
@@ -176,6 +193,9 @@ function walkRaylight(node, out) {
         title: n.name || n.title, chartType: n.chartType || t,
         dimensions: dims.filter(Boolean), measures: meas.filter(Boolean), rows: [], cols: [],
         formulaByName,
+        breaks: nameList(n.breaks || n.breakBy),
+        sort: sortList(n.sort || n.sortBy),
+        sections: nameList(n.sections || n.sectionBy),
       });
     }
     // Recurse into containers.
@@ -408,9 +428,115 @@ function blockToElement(block, src, measFormula, dimRef, warnings) {
   }
 
   // default: table
-  const cols = [], order = [];
-  for (const d of dims) { const id = uid('c'); cols.push({ id, name: d, formula: dimRef(d) }); order.push(id); }
-  for (const m of meas) { const id = uid('c'); cols.push({ id, name: displayName(m), formula: measFormula(m) }); order.push(id); }
+  const cols = [], order = [], colByName = new Map(), measColIds = [];
+  for (const d of dims) { const id = uid('c'); cols.push({ id, name: d, formula: dimRef(d) }); order.push(id); colByName.set(d, id); }
+  for (const m of meas) { const id = uid('c'); const nm = displayName(m); cols.push({ id, name: nm, formula: measFormula(m) }); order.push(id); colByName.set(nm, id); measColIds.push(id); }
   if (!cols.length) return null;
-  return { id: uid('tbl'), kind: 'table', name: block.title || 'Table', source: src, columns: cols, order };
+  const el = { id: uid('tbl'), kind: 'table', name: block.title || 'Table', source: src, columns: cols, order };
+  buildGroupings(block, el, colByName, measColIds, warnings);
+  return el;
+}
+
+// Any OTHER bare-column running/window calc left in a measure column of a
+// grouped table (besides the CumulativeSum([X]) rewritten above) has an
+// UNVERIFIED group-level form — its Webi source is a workbook-placed layout
+// var (RunningCount/RunningAverage/Previous) that the formula translator
+// emits as CumulativeCount([X]) / (CumulativeSum([X]) / CumulativeCount([X]))
+// / Lag([X]). Per the Task-8 rule, a bare-column cumulative left inside a
+// grouping's `calculations` can silently drop or mis-grain — so rather than
+// guess a group-level rewrite for these (unlike CumulativeSum, live-unverified),
+// warn and leave the formula untouched.
+const OTHER_RUNNING_CALCS = [
+  [/^CumulativeCount\(\s*\[[^\]]+\]\s*\)$/, 'CumulativeCount'],
+  [/^Lag\(\s*\[[^\]]+\]\s*\)$/, 'Lag'],
+  [/^\(CumulativeSum\(\s*\[[^\]]+\]\s*\)\s*\/\s*CumulativeCount\(\s*\[[^\]]+\]\s*\)\)$/, 'RunningAverage ratio'],
+];
+
+// Build Sigma table `groupings` (and, for an ungrouped table, an element-level
+// `sort`) from a block's breaks/sections + sort. Productionizes the Task-8 E2E
+// harness's groupBySum:
+//   - group key order = sections (outermost) then breaks, deduped by column id
+//     (a dim used as BOTH a section and a break must appear once, not twice)
+//   - calculations = every measure column id (per-group subtotals)
+//   - a bare-column CumulativeSum([X]) measure is rewritten to
+//     CumulativeSum(Sum([X])) so a running total is correct at the group level;
+//     any OTHER bare-column running calc (RunningCount/RunningAverage/Previous)
+//     is left alone but warned on (see OTHER_RUNNING_CALCS above)
+//   - sort on a GROUPED table lives INSIDE the grouping entry (a top-level
+//     `table.sort` on a grouped table 400s); sort on an UNGROUPED table (no
+//     break/section, or all breaks/sections unresolvable) is the element-level
+//     `sort: [{columnId,direction}]` property (live-verified Task 3: accepted,
+//     round-trips, orders the rows).
+//   - grand total: Sigma's per-column grand total (the table's Totals footer,
+//     spec `summary`) can't reference a column already used as a per-group
+//     `calculation` and is NOT returned by the data export — so it is not
+//     auto-emitted; a warning tells the author to enable it in Sigma.
+// Mutates `tableEl` (adds `.groupings`/`.sort`, may rewrite a measure column formula).
+function buildGroupings(block, tableEl, colByName, measColIds, warnings) {
+  const sectionNamesRaw = nameList(block.sections);          // original casing, for the approximation warning
+  const sectionNames = sectionNamesRaw.map(displayName);
+  const breakNames = nameList(block.breaks).map(displayName);
+  const resolveGroupName = nm => colByName.get(nm) || colByName.get(displayName(nm));
+
+  // Resolve the block's sort → column ids once; used inside the grouping entry
+  // when grouped, or as the element-level `sort` when ungrouped (including the
+  // ungrouped-fallback case: all breaks/sections unresolvable).
+  const sortEntries = [];
+  for (const s of (block.sort || [])) {
+    const cid = colByName.get(s.name) || colByName.get(displayName(s.name));
+    if (cid) sortEntries.push({ columnId: cid, direction: s.direction === 'descending' ? 'descending' : 'ascending' });
+    else warnings.push(`Table "${tableEl.name}": sort column "${s.name}" not found — skipped.`);
+  }
+  if (!sectionNames.length && !breakNames.length) {
+    // Ungrouped table: a sort is the element-level `sort` property. No
+    // groupings key, no grand-total advisory (nothing is grouped).
+    if (sortEntries.length) tableEl.sort = sortEntries;
+    return;
+  }
+  // groupBy: sections first (outermost), then breaks; dedupe by column id
+  // (Fix 4) so a dim used as both a section and a break isn't repeated.
+  const groupBy = [];
+  const seen = new Set();
+  const resolvedSectionNames = [];   // only sections that actually resolved (Fix 2 gate)
+  sectionNames.forEach((nm, i) => {
+    const id = resolveGroupName(nm);
+    if (!id) { warnings.push(`Table "${tableEl.name}": break/section "${nm}" is not a column on the table — skipped.`); return; }
+    resolvedSectionNames.push(sectionNamesRaw[i]);
+    if (!seen.has(id)) { seen.add(id); groupBy.push(id); }
+  });
+  for (const nm of breakNames) {
+    const id = resolveGroupName(nm);
+    if (!id) { warnings.push(`Table "${tableEl.name}": break/section "${nm}" is not a column on the table — skipped.`); continue; }
+    if (!seen.has(id)) { seen.add(id); groupBy.push(id); }
+  }
+  if (!groupBy.length) {
+    // T3a: every break/section was unresolvable — fall back to the SAME
+    // element-level sort path as the no-breaks case rather than silently
+    // discarding a resolved sort (the table is effectively ungrouped now).
+    if (sortEntries.length) tableEl.sort = sortEntries;
+    return;
+  }
+  // group-level running-total rewrite (bare-column CumulativeSum → wrap arg in Sum())
+  for (const c of tableEl.columns) {
+    const m = c.formula && c.formula.match(/^CumulativeSum\(\s*(\[[^\]]+\])\s*\)$/);
+    if (m) c.formula = `CumulativeSum(Sum(${m[1]}))`;
+  }
+  // Fix 1: warn (don't rewrite) any OTHER bare-column running calc left on a
+  // measure column now that we know this table IS grouped.
+  for (const c of tableEl.columns) {
+    if (!measColIds.includes(c.id) || !c.formula) continue;
+    const hit = OTHER_RUNNING_CALCS.find(([re]) => re.test(c.formula));
+    if (hit) warnings.push(`Table "${tableEl.name}": grouped running calc "${c.name}" (${hit[1]}) is not auto-adjusted to group level (only RunningSum is) — it may drop or mis-grain; verify/adjust in Sigma.`);
+  }
+  // sort → inside the grouping entry; default ascending on the outermost key
+  const sort = sortEntries.length ? sortEntries : [{ columnId: groupBy[0], direction: 'ascending' }];
+  tableEl.groupings = [{ id: `grp-${tableEl.id}`, groupBy, calculations: measColIds.slice(), sort }];
+  // Fix 2: only emit the section-approximation warning for section names that
+  // actually made it into groupBy — a section that failed to resolve already
+  // got the "not a column — skipped" warning above and shouldn't ALSO claim
+  // to have been approximated as a grouping.
+  if (resolvedSectionNames.length) warnings.push(`Section "${resolvedSectionNames.join(', ')}" approximated as an outer grouping — the master-detail band layout is not reproduced 1:1.`);
+  // Per-group subtotals are emitted (the grouping's `calculations`); a
+  // report-level grand total is not — enable the table's grand total in Sigma.
+  warnings.push(`Table "${tableEl.name}": per-group subtotals emitted; a grand total is not auto-emitted — enable the table's grand total (Totals) in Sigma if the report needs one.`);
 }

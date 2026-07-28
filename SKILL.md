@@ -128,7 +128,7 @@ Set expectations with this before promising a Webi migration, and use it as the 
 | Report variables — arithmetic / string / date / `If` | 🟢 | `webi-formula.mjs` translates |
 | `RunningSum` / `RunningCount` / `Previous` | 🟢 | → `CumulativeSum` / `CumulativeCount` / `Lag` (workbook calc column) |
 | `Rank`, `Percentage` (% of total) | 🟢 | → `Rank`/`RankDense`, `PercentOfTotal` |
-| Subtotals / grand totals | 🟡 | Sigma tables/pivots have native totals — enable on the element (not auto-set) |
+| Subtotals (per break) / grand totals | 🟢 / 🟡 | Per-group **subtotals** auto-emitted from Webi breaks (see Formatting → Sections & breaks); a table **grand total** is not auto-emitted (Sigma UI footer) — add in Sigma |
 | Calculation context `In` / `ForEach` / `ForAll` | 🟡 | Parsed + **warned**: set the element grouping / window partition to the named dims and verify |
 | `NoFilter` | 🔴 | No direct equivalent — compute on a **separate unfiltered element** and reference it (warned) |
 | Nested vars / % of a report grand total | 🟢 | Not viewport-limited: Sigma computes aggregates/window fns over the **whole** warehouse result, so "only x rows rendered" is a non-issue |
@@ -138,8 +138,8 @@ Set expectations with this before promising a Webi migration, and use it as the 
 | Webi | Status | What happens / what you do |
 |---|---|---|
 | Table / crosstab / bar,line,pie,area,scatter,combo | 🟢 | mapped to table / pivot-table / matching chart; exotic viz → nearest Sigma equivalent |
-| Sections & breaks | 🟡 | rebuild as table **grouping + subtotals** (or small-multiples); not auto-carried |
-| Sorting | 🟡 | native — re-apply on the element (Webi sort not carried) |
+| Sections & breaks | 🟢 / 🟡 | **breaks → table `groupings` + per-group subtotals, auto** (running totals rewritten to `CumulativeSum(Sum(...))`). **Sections** fold in as the **outermost** group key (+ warning — the master-detail band layout isn't reproduced 1:1). A report-level **grand total is not auto-emitted** (warned) — enable the table's Totals in Sigma. |
+| Sorting | 🟢 | **carried automatically** — inside the grouping entry on a grouped/broken table (`groupings[].sort`), and as the element-level `sort` on an ungrouped table |
 | Conditional formatting / alerters | 🟡 | Sigma `conditionalFormats` (rules, scales, data bars) — re-author |
 | Colors / fonts / borders | 🟡 | themes + element formatting; not 1:1 (expect design-system normalization) |
 | Embedded images / logos | 🟡 | Sigma image element — re-add |
