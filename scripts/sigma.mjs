@@ -54,21 +54,28 @@ export async function getDataModelSpec(dataModelId) {
 }
 
 /**
- * POST a full spec back to update an EXISTING data model in place (e.g. after
+ * PUT a full spec back to update an EXISTING data model in place (e.g. after
  * merging dataModelAdditions into its View element).
  *
- * ASSUMPTION (unverified — confirm live in Task 8): mirrors the GET path
- * (`/v2/dataModels/{id}/spec`) with POST for a full-spec replace, the same
- * "code representation" convention `postDataModel`/`postWorkbook` use for
- * create. Unlike `referenceWorkbookSchemaVersion`'s workbook-spec GET (which
- * comes back as YAML text), `getDataModelSpec` above already round-trips as
- * plain JSON (established by migrate-universe.mjs, pre-dating this task) — so
- * this POST sends the merged object as JSON, not YAML. If the live endpoint
- * differs (e.g. requires PUT, or a different path), Task 8's e2e harness will
- * surface it as an HTTP error on this call.
+ * CONFIRMED live in Task 8 against the Sigma "code representation" OpenAPI
+ * (https://help.sigmacomputing.com/openapi/openapi/code-representation.json →
+ * `/v2/dataModels/{dataModelId}/spec`): the update verb is **PUT**, not POST
+ * (POST on that path is CREATE-only, matching `postDataModel` above; a POST
+ * here 404s/405s). The original assumption in this function's previous
+ * revision was wrong on the verb — corrected here. Body is
+ * `{ schemaVersion, pages }`. Per the endpoint docs, only `pages` (+
+ * `schemaVersion`) are read — other top-level fields are ignored — and this
+ * is a full-representation replace, not a partial patch.
+ *
+ * Normalizes its input so callers can pass back whatever `getDataModelSpec`
+ * handed them, unmodified shape and all: some DM-spec GET responses nest
+ * `pages` under `spec.spec.pages` rather than a flat `spec.pages` (the same
+ * uncertainty `mergeAdditionsIntoView` already hedges — see dm-merge.mjs).
  */
 export async function postDataModelSpec(dataModelId, spec) {
-  return req('POST', `/v2/dataModels/${dataModelId}/spec`, spec);
+  const pages = spec.pages || spec.spec?.pages;
+  const schemaVersion = spec.schemaVersion ?? spec.spec?.schemaVersion ?? 2;
+  return req('PUT', `/v2/dataModels/${dataModelId}/spec`, { schemaVersion, pages });
 }
 
 /** Read the current workbook schemaVersion from any reference workbook (spec is YAML). */

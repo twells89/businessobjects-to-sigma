@@ -226,34 +226,55 @@ export function convertWebiToWorkbook(input, options = {}) {
   // uses it, since it depends on the element's own grouping/partition.
   const dataModelAdditions = { metrics: [], columns: [] };
   const workbookVarFormula = new Map();   // variable name → qualified workbook formula
+  // A DM-placed MEASURE variable's INLINE translated+qualified formula (it
+  // re-aggregates the raw View columns, e.g. Sum([View/Net]) / Sum([View/Gross])).
+  // This is what a block column that references the measure must resolve to —
+  // NOT the metric by column-path — because a DM metric is NOT addressable as
+  // `[Element/MetricName]` from a workbook (live-verified in Task 8: POST
+  // /v2/workbooks/spec 400s "Dependency not found: 'order fact view/margin
+  // pct'"), whereas the raw columns it re-aggregates DO resolve. The metric
+  // still lands in dataModelAdditions.metrics (governance/reuse, per the
+  // split-by-kind design), and the workbook stays self-resolving — identical to
+  // how the existing base-measure path already works (raw column on the View,
+  // aggregate applied in the workbook).
+  const dmMeasureInline = new Map();      // DM-placed measure var name → inline qualified formula
+  // A DM-placed DIMENSION variable becomes a real calc COLUMN on the View, so
+  // it IS addressable by column-path `[sourceName/Name]` (unlike a metric).
+  const dmColumnNames = new Set();
   for (const v of doc.variables) {
     if (!v.formula) continue;
     const tr = translateWebiFormula(v.formula, { qualification: v.qualification });
     tr.warnings.forEach(w => warnings.push(`Variable "${v.name}": ${w}`));
     const qualified = q(tr.sigma);
     if (tr.placement === 'dm') {
-      const bucket = tr.kind === 'measure' ? dataModelAdditions.metrics : dataModelAdditions.columns;
-      if (!bucket.some(x => x.name === v.name)) bucket.push({ id: uid('add'), name: v.name, formula: qualified });
+      if (tr.kind === 'measure') {
+        if (!dataModelAdditions.metrics.some(x => x.name === v.name)) dataModelAdditions.metrics.push({ id: uid('add'), name: v.name, formula: qualified });
+        dmMeasureInline.set(v.name, qualified);
+      } else {
+        if (!dataModelAdditions.columns.some(x => x.name === v.name)) dataModelAdditions.columns.push({ id: uid('add'), name: v.name, formula: qualified });
+        dmColumnNames.add(v.name);
+      }
     } else {
       workbookVarFormula.set(v.name, qualified);
     }
   }
-  // Names that will become DM columns/metrics (added by Task 7) — a block
-  // measure/dimension named after one of these resolves to a qualified ref
-  // into the View, not the plain-universe Sum([Name]) default.
-  const dmAdditionNames = new Set([...dataModelAdditions.metrics, ...dataModelAdditions.columns].map(x => x.name));
 
   // Resolve a block dim/measure name to the right formula source, in order:
   //   1. a workbook-placed variable → its own translated+qualified calc,
-  //   2. a DM-placed variable → a qualified ref `[sourceName/Name]` to the
-  //      metric/column Task 7 adds to the View (NOT Sum([Name])),
-  //   3. neither → unchanged existing behavior (fallback: measFormula/dimRef).
+  //   2. a DM-placed MEASURE variable → its inline re-aggregated formula
+  //      (Sum([View/Net]) / Sum([View/Gross])), NOT a metric column-path ref
+  //      (that 400s at workbook POST) and NOT the plain Sum([Name]) default,
+  //   3. a DM-placed DIMENSION variable → a qualified column-path ref
+  //      `[sourceName/Name]` to the calc column Task 7 adds to the View,
+  //   4. none → unchanged existing behavior (fallback: measFormula/dimRef).
   const resolveRef = (name, fallback) => {
     const dn = displayName(name);
     if (workbookVarFormula.has(name)) return workbookVarFormula.get(name);
     if (workbookVarFormula.has(dn)) return workbookVarFormula.get(dn);
-    if (dmAdditionNames.has(name)) return q(`[${name}]`);
-    if (dmAdditionNames.has(dn)) return q(`[${dn}]`);
+    if (dmMeasureInline.has(name)) return dmMeasureInline.get(name);
+    if (dmMeasureInline.has(dn)) return dmMeasureInline.get(dn);
+    if (dmColumnNames.has(name)) return q(`[${name}]`);
+    if (dmColumnNames.has(dn)) return q(`[${dn}]`);
     return fallback(name);
   };
   const resolvedMeasFormula = name => resolveRef(name, measFormula);

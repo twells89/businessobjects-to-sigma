@@ -31,10 +31,18 @@ check(cols.some(c => c.name === 'Running Revenue' && /CumulativeSum/.test(c.form
 check(cols.every(c => !(c.name && `[${c.name}]` === c.formula)), 'no self-referential column formulas');
 check(r.dataModelAdditions.metrics.every(m => /Order Fact View\//.test(m.formula)), 'DM-addition formulas qualified by source name');
 
-// DM-addition measure resolves at the block column to the qualified DM ref, not Sum([...])
+// DM-addition MEASURE resolves at the block column to the INLINE translated+
+// qualified formula (re-aggregating the raw View columns, exactly like a base
+// measure), NOT the metric by column-path: a DM metric is NOT addressable as
+// [Element/MetricName] from a workbook (live-verified in Task 8 — POST
+// /v2/workbooks/spec 400s "Dependency not found: 'order fact view/margin
+// pct'"); the raw View columns it re-aggregates DO resolve. The metric still
+// lands in the DM (governance/reuse) via dataModelAdditions.metrics.
 const mcol = cols.find(c => c.name === 'Margin Pct');
-check(mcol && /^\[Order Fact View\/Margin Pct\]$/.test(mcol.formula), 'Margin Pct block col → qualified DM ref [Order Fact View/Margin Pct]');
-check(mcol && !/Sum\(/.test(mcol.formula), 'Margin Pct block col is NOT Sum([Margin Pct])');
+check(mcol && /^Sum\(\[Order Fact View\/Net Revenue\]\) \/ Sum\(\[Order Fact View\/Gross Revenue\]\)$/.test(mcol.formula),
+  'Margin Pct block col → inline re-aggregated raw View columns (Sum([.../Net Revenue]) / Sum([.../Gross Revenue]))');
+check(mcol && !/\[Order Fact View\/Margin Pct\]/.test(mcol.formula),
+  'Margin Pct block col does NOT reference the metric by column-path (that 400s at workbook POST)');
 
 // dimension variable lands in the columns bucket (not metrics) and resolves to a qualified ref
 check(r.dataModelAdditions.columns.some(c => c.name === 'Region Bucket'), 'dimension variable → dataModelAdditions.columns');
