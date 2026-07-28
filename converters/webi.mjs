@@ -437,19 +437,36 @@ function blockToElement(block, src, measFormula, dimRef, warnings) {
   return el;
 }
 
-// Build Sigma table `groupings` from a block's breaks/sections + sort.
-// Productionizes the Task-8 E2E harness's groupBySum:
+// Build Sigma table `groupings` (and, for an ungrouped table, an element-level
+// `sort`) from a block's breaks/sections + sort. Productionizes the Task-8 E2E
+// harness's groupBySum:
 //   - group key order = sections (outermost) then breaks
 //   - calculations = every measure column id (per-group subtotals)
 //   - a bare-column CumulativeSum([X]) measure is rewritten to
 //     CumulativeSum(Sum([X])) so a running total is correct at the group level
-//   - sort lives INSIDE the grouping entry (a top-level table.sort 400s)
-// Mutates `tableEl` (adds `.groupings`, may rewrite a measure column formula).
+//   - sort on a GROUPED table lives INSIDE the grouping entry (a top-level
+//     `table.sort` on a grouped table 400s); sort on an UNGROUPED table (no
+//     break/section) is the element-level `sort: [{columnId,direction}]`
+//     property (live-verified Task 3: accepted, round-trips, orders the rows).
+//   - grand total: Sigma's per-column grand total (the table's Totals footer,
+//     spec `summary`) can't reference a column already used as a per-group
+//     `calculation` and is NOT returned by the data export — so it is not
+//     auto-emitted; a warning tells the author to enable it in Sigma.
+// Mutates `tableEl` (adds `.groupings`/`.sort`, may rewrite a measure column formula).
 function buildGroupings(block, tableEl, colByName, measColIds, warnings) {
   const groupNames = [...nameList(block.sections).map(displayName), ...nameList(block.breaks).map(displayName)];
-  const hasSort = (block.sort || []).length > 0;
+  // Resolve the block's sort → column ids once; used inside the grouping entry
+  // when grouped, or as the element-level `sort` when ungrouped.
+  const sortEntries = [];
+  for (const s of (block.sort || [])) {
+    const cid = colByName.get(s.name) || colByName.get(displayName(s.name));
+    if (cid) sortEntries.push({ columnId: cid, direction: s.direction === 'descending' ? 'descending' : 'ascending' });
+    else warnings.push(`Table "${tableEl.name}": sort column "${s.name}" not found — skipped.`);
+  }
   if (!groupNames.length) {
-    if (hasSort) warnings.push(`Table "${tableEl.name}": sort present but no break/section — Sigma sort on an ungrouped table is not emitted (confirm the target and apply in Sigma).`);
+    // Ungrouped table: a sort is the element-level `sort` property. No
+    // groupings key, no grand-total advisory (nothing is grouped).
+    if (sortEntries.length) tableEl.sort = sortEntries;
     return;
   }
   const groupBy = [];
@@ -465,14 +482,11 @@ function buildGroupings(block, tableEl, colByName, measColIds, warnings) {
     if (m) c.formula = `CumulativeSum(Sum(${m[1]}))`;
   }
   // sort → inside the grouping entry; default ascending on the outermost key
-  const sort = [];
-  for (const s of (block.sort || [])) {
-    const cid = colByName.get(s.name) || colByName.get(displayName(s.name));
-    if (cid) sort.push({ columnId: cid, direction: s.direction === 'descending' ? 'descending' : 'ascending' });
-    else warnings.push(`Table "${tableEl.name}": sort column "${s.name}" not found — skipped.`);
-  }
-  if (!sort.length) sort.push({ columnId: groupBy[0], direction: 'ascending' });
+  const sort = sortEntries.length ? sortEntries : [{ columnId: groupBy[0], direction: 'ascending' }];
   tableEl.groupings = [{ id: `grp-${tableEl.id}`, groupBy, calculations: measColIds.slice(), sort }];
   const secs = nameList(block.sections);
   if (secs.length) warnings.push(`Section "${secs.join(', ')}" approximated as an outer grouping — the master-detail band layout is not reproduced 1:1.`);
+  // Per-group subtotals are emitted (the grouping's `calculations`); a
+  // report-level grand total is not — enable the table's grand total in Sigma.
+  warnings.push(`Table "${tableEl.name}": per-group subtotals emitted; a grand total is not auto-emitted — enable the table's grand total (Totals) in Sigma if the report needs one.`);
 }

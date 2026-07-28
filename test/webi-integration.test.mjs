@@ -174,14 +174,28 @@ check(r3cols.some(c => c.name === 'Bucket' && /If\(\[Order Fact View\/Revenue\] 
   const tbl4 = r4.workbook.pages[0].elements.find(e => e.kind === 'table');
   check(!('groupings' in tbl4), 'no breaks/sections → no groupings key');
 
-  // sort without a break → ungrouped + warning (no guessed top-level sort)
+  // sort without a break → NO grouping, but element-level `sort` (Task 3
+  // live-verified: element `sort: [{columnId,direction}]` orders an ungrouped
+  // table; a top-level sort on a GROUPED table is the one that 400s).
   const r5 = convertWebiToWorkbook({ document: { name: 'D', variables: [], filters: [], reports: [
     { name: 'R', blocks: [ { kind: 'VTable', title: 'S', dimensions: ['Customer Region'], measures: ['Net Revenue'],
         sort: [{ name: 'Net Revenue', direction: 'descending' }] } ] } ] } },
     { dataModelId: 'DM', dataModelElementId: 'VIEW', sourceName: 'Order Fact View', measureMap: {}, schemaVersion: 1 });
   const tbl5 = r5.workbook.pages[0].elements.find(e => e.kind === 'table');
-  check(!('groupings' in tbl5) && !('sort' in tbl5), 'sort without break → no grouping and no guessed sort field');
-  check(r5.warnings.some(w => /sort .* no break|ungrouped .* sort/i.test(w)), 'sort-without-break warns');
+  const netCol5 = tbl5.columns.find(c => c.name === 'Net Revenue');
+  check(!('groupings' in tbl5), 'sort without break → no grouping key');
+  check(Array.isArray(tbl5.sort) && tbl5.sort.length === 1 && tbl5.sort[0].columnId === netCol5.id && tbl5.sort[0].direction === 'descending',
+    `sort without break → element-level sort [{columnId,direction}] (got ${JSON.stringify(tbl5.sort)})`);
+  check(!r5.warnings.some(w => /sort .* no break|ungrouped .* sort/i.test(w)), 'no sort-without-break warning (sort is emitted, not warned)');
+
+  // unresolvable ungrouped sort column → warns + no sort field (not a guess)
+  const r5b = convertWebiToWorkbook({ document: { name: 'D', variables: [], filters: [], reports: [
+    { name: 'R', blocks: [ { kind: 'VTable', title: 'S', dimensions: ['Customer Region'], measures: ['Net Revenue'],
+        sort: [{ name: 'Ghost Measure', direction: 'descending' }] } ] } ] } },
+    { dataModelId: 'DM', dataModelElementId: 'VIEW', sourceName: 'Order Fact View', measureMap: {}, schemaVersion: 1 });
+  const tbl5b = r5b.workbook.pages[0].elements.find(e => e.kind === 'table');
+  check(!('sort' in tbl5b), 'unresolvable ungrouped sort column → no sort field');
+  check(r5b.warnings.some(w => /sort column "Ghost Measure" not found/i.test(w)), 'unresolvable ungrouped sort column warns');
 
   // missing break column → warn + skip, no throw
   const r6 = convertWebiToWorkbook({ document: { name: 'D', variables: [], filters: [], reports: [

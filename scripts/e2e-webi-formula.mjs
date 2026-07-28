@@ -35,7 +35,7 @@ const FOLDER_ID = '9ca9bf60-6a33-43dd-967d-1ba6352c54bb';     // test folder
 
 let failures = 0;
 const check = (cond, msg) => { console.log(`${cond ? '✅' : '❌'} ${msg}`); if (!cond) failures++; return cond; };
-const created = { dataModelId: null, workbookId: null };
+const created = { dataModelId: null, workbookIds: [] };
 
 // ── Minimal REST helpers this harness needs beyond scripts/sigma.mjs ────────
 
@@ -307,73 +307,36 @@ async function main() {
     console.log('DM spec updated live.');
   }
 
-  // ── Step 4: post-process the workbook — add groupings/sort so the grouped
-  // tie-outs (In-context sum, Running Revenue) evaluate at a real grain. This
-  // is the harness's own responsibility (not the translator's): a Sigma
-  // `table` with no `groupings` shows raw detail rows, so the harness wires
-  // the grouping a real workbook author would add when following the
-  // translator's context-operator warning ("set the Sigma grouping to
-  // [Customer Region] and verify").
-  //
-  // Two live-verified (Task 8) rules govern how a grouped table exports:
-  //   1. EVERY non-dimension column must be listed in the grouping's
-  //      `calculations` for the table to collapse to one row per group; a
-  //      column left out keeps the table at detail grain (Sigma broadcasts the
-  //      group aggregate over every underlying row).
-  //   2. A running total (the translator's RunningSum→CumulativeSum) only
-  //      produces a valid, monotonic group-level series when the author (a)
-  //      accumulates the group SUM — CumulativeSum(Sum([col])) — and (b) lists
-  //      it in `calculations`. A bare-column CumulativeSum placed in
-  //      `calculations` is silently DROPPED from the result; left as a detail
-  //      column it computes per-row in an order the export does not preserve.
-  //      This inner-Sum + grouping placement is exactly the completion a real
-  //      author performs for a windowed measure whose translator output is
-  //      (by design, v1) the bare base call.
+  // ── Step 4: the converted workbook is used UNCHANGED ──────────────────────
+  // The translator now emits table `groupings` directly from the Webi block's
+  // breaks/sort (Task 1+2): the E2E fixture puts `breaks: ["Customer Region"]`
+  // (+ `sort: [{Net Revenue, descending}]`) on "Region Summary" and a break on
+  // "Region Raw Check", so both collapse to one row per region — per-group
+  // subtotals in `calculations`, the running total rewritten to
+  // CumulativeSum(Sum(...)), and the sort inside the grouping entry — with no
+  // post-processing by this harness. The old manual `groupBySum` was deleted.
   const page = wconv.workbook.pages[0];
   const byName = n => page.elements.find(e => e.name === n);
-  const colByName = (el, n) => el.columns.find(c => c.name === n);
-  const groupBySum = (tableEl, dimName, aggCalcNames, runningCalcNames = []) => {
-    const dimCol = colByName(tableEl, dimName);
-    if (!dimCol) throw new Error(`groupBySum: no "${dimName}" column on "${tableEl.name}"`);
-    const need = n => {
-      const c = colByName(tableEl, n);
-      if (!c) throw new Error(`groupBySum: no "${n}" column on "${tableEl.name}"`);
-      return c;
-    };
-    const aggCols = aggCalcNames.map(need);
-    // Complete each running total to its monotonic group-level form: wrap the
-    // CumulativeSum's bare column argument in Sum() (rule 2 above). The
-    // translator supplies `CumulativeSum([Order Fact View/Net Revenue])`; the
-    // author scopes it to the grouping as `CumulativeSum(Sum([…]))`.
-    const runCols = runningCalcNames.map(n => {
-      const c = need(n);
-      const rewritten = c.formula.replace(/CumulativeSum\(\s*(\[[^\]]+\])\s*\)/, 'CumulativeSum(Sum($1))');
-      if (rewritten === c.formula) throw new Error(`groupBySum: "${n}" is not a bare-column CumulativeSum — got ${c.formula}`);
-      c.formula = rewritten;
-      return c;
-    });
-    // NOTE: `sort` is a property of the `groupings[]` entry itself, not a
-    // top-level table field (live-verified: a top-level `table.sort` 400s
-    // with "Sort column not found" even for a column id that legitimately
-    // exists on the table — see tables.md's `groupings[].sort` example).
-    tableEl.groupings = [{
-      id: `grp-${tableEl.id}`,
-      groupBy: [dimCol.id],
-      calculations: [...aggCols, ...runCols].map(c => c.id),
-      sort: [{ columnId: dimCol.id, direction: 'ascending' }],
-    }];
-  };
-
   const summary = byName('Region Summary');
   const rawCheck = byName('Region Raw Check');
   if (!summary || !rawCheck) throw new Error('Region Summary / Region Raw Check element missing from the converted workbook.');
-  groupBySum(summary, 'Customer Region', ['Net Revenue', 'Gross Revenue', 'Regional Net Revenue'], ['Running Revenue']);
-  groupBySum(rawCheck, 'Customer Region', ['Net Revenue']);
+  // Guard: the tie-outs below only mean anything if the CONVERTER (not this
+  // harness) produced the grouping. Fail loudly if it didn't.
+  check(Array.isArray(summary.groupings) && summary.groupings.length === 1,
+    'Converter emitted a grouping on Region Summary (breaks → groupings, no harness post-processing)');
+  const summaryGrp = summary.groupings?.[0] || {};
+  const netColId = summary.columns.find(c => c.name === 'Net Revenue')?.id;
+  check(Array.isArray(summaryGrp.sort) && summaryGrp.sort.length === 1 &&
+    summaryGrp.sort[0].columnId === netColId && summaryGrp.sort[0].direction === 'descending',
+    'Converter carried the sort INSIDE the grouping entry (Net Revenue, descending)');
+  const runningCol = summary.columns.find(c => c.name === 'Running Revenue');
+  check(/^CumulativeSum\(Sum\(\[.*Net Revenue\]\)\)$/.test(runningCol?.formula || ''),
+    `Converter rewrote the running total to CumulativeSum(Sum(...)) (got ${runningCol?.formula})`);
 
-  // ── Step 5: POST the workbook ──────────────────────────────────────────────
+  // ── Step 5: POST the workbook (converter output, unchanged) ────────────────
   const workbookId = await postWorkbook(wconv.workbook);
   if (!workbookId) throw new Error('postWorkbook did not return a workbookId.');
-  created.workbookId = workbookId;
+  created.workbookIds.push(workbookId);
   console.log('\nWorkbook created:', workbookId);
   console.log(`Open: ${SIGMA_BASE.replace(/^https:\/\/aws-api\./, 'https://app.')} → workbook ${workbookId}`);
 
@@ -416,49 +379,70 @@ async function main() {
     `Tier 4: All Time Net Revenue (NoFilter stub, ${allTimeValue}) is a real value ≈ Net Revenue Total (${netRevTotal}), not a broken column`
   );
 
-  // The grouped table exports one row per group; dedupe defensively by region
-  // and order by the grouping's own sort (Customer Region ascending, null/blank
-  // region last) so the running total is read in the SAME order Sigma
-  // accumulated it.
-  const dedupeByRegion = rows => {
-    const seen = new Map();
-    for (const r of rows) { const k = r['Customer Region'] ?? null; if (!seen.has(k)) seen.set(k, r); }
-    return [...seen.values()].sort((a, b) => {
-      const ra = a['Customer Region'], rb = b['Customer Region'];
-      if (ra == null && rb == null) return 0;
-      if (ra == null) return 1;
-      if (rb == null) return -1;
-      return String(ra).localeCompare(String(rb));
-    });
+  // Both grouped tables export one row per group. Read them in the order the
+  // API returned them (that IS the grouping's sort order — do NOT re-sort, the
+  // sort tie-out below depends on the returned order); dedupe defensively by
+  // region key, preserving first-seen order. `<null>` is the sentinel for the
+  // one region group whose Customer Region is blank/null.
+  const RK = r => (r['Customer Region'] == null ? '<null>' : r['Customer Region']);
+  const preserveOrder = rows => {
+    const seen = new Set(), out = [];
+    for (const r of rows) { const k = RK(r); if (!seen.has(k)) { seen.add(k); out.push(r); } }
+    return out;
   };
-
-  // (c) Running Revenue — the translator's RunningSum→CumulativeSum, completed
-  // by the author into a group-level running total, is monotonically
-  // non-decreasing across the region-ascending rows and totals to the grand
-  // Net Revenue on the final region.
-  const summaryRows = dedupeByRegion(await exportElementRows(workbookId, summary.id));
-  console.log('\nRegion Summary (per region, region-asc):', JSON.stringify(summaryRows.map(r => ({
+  const summaryRows = preserveOrder(await exportElementRows(workbookId, summary.id));
+  const rawRows = preserveOrder(await exportElementRows(workbookId, rawCheck.id));
+  console.log('\nRegion Summary (per region, in returned order):', JSON.stringify(summaryRows.map(r => ({
     region: r['Customer Region'], net: r['Net Revenue'], gross: r['Gross Revenue'],
     regional: r['Regional Net Revenue'], running: r['Running Revenue'],
   })), null, 2));
+  console.log('Region Raw Check (independent grouped query, per region):', JSON.stringify(rawRows.map(r => ({
+    region: r['Customer Region'], net: r['Net Revenue'],
+  })), null, 2));
+
+  // (a) SUBTOTALS — each region's Net Revenue subtotal from the converter's
+  // grouping ties out to an INDEPENDENT raw grouped query (the "Region Raw
+  // Check" element, grouped only on Customer Region) for the same region.
+  const rawNetByRegion = new Map(rawRows.map(r => [RK(r), Number(r['Net Revenue'])]));
+  let subtotalsTie = summaryRows.length > 0 && summaryRows.length === rawRows.length;
+  for (const r of summaryRows) {
+    const key = RK(r), sub = Number(r['Net Revenue']), raw = rawNetByRegion.get(key);
+    const ok = Number.isFinite(sub) && Number.isFinite(raw) && Math.abs(sub - raw) <= tol(raw);
+    if (!ok) subtotalsTie = false;
+    console.log(`   subtotal[${key}]: grouping ${sub} vs independent raw grouped ${raw} → ${ok ? '≈' : '≠ MISMATCH'}`);
+  }
+  check(subtotalsTie,
+    `Subtotals: every region's Net Revenue subtotal ties to the independent raw grouped query (${summaryRows.length} region group(s))`);
+
+  // (b) SORT ORDER — the grouped rows come back sorted by the requested key
+  // (Net Revenue, descending). Assert the returned region order matches an
+  // INDEPENDENT sort of the raw grouped query by Net Revenue descending.
+  const actualOrder = summaryRows.map(RK);
+  const expectedOrder = [...rawRows].sort((a, b) => Number(b['Net Revenue']) - Number(a['Net Revenue'])).map(RK);
+  console.log(`   sort actual  : ${JSON.stringify(actualOrder)}`);
+  console.log(`   sort expected: ${JSON.stringify(expectedOrder)} (independent Net-Revenue-desc sort)`);
+  check(JSON.stringify(actualOrder) === JSON.stringify(expectedOrder),
+    'Sort order: grouped rows returned Net-Revenue-descending, matching an independent sorted query');
+
+  // (c) RUNNING TOTAL — the converter's CumulativeSum(Sum(...)) is monotonically
+  // non-decreasing when read in the grouping's accumulation (sort) order, and
+  // its final value equals the grand-total Net Revenue.
   const running = summaryRows.map(r => Number(r['Running Revenue']));
   let monotonic = running.length > 1 && running.every(Number.isFinite);
   for (let i = 1; i < running.length; i++) if (running[i] < running[i - 1] - 1e-6) monotonic = false;
-  check(monotonic, `Running Revenue (group-level cumulative) is monotonically non-decreasing across ${running.length} region(s): [${running.join(', ')}]`);
+  check(monotonic, `Running Revenue (converter CumulativeSum(Sum(...))) monotonically non-decreasing across ${running.length} region(s): [${running.join(', ')}]`);
+  const finalRunning = running[running.length - 1];
+  const subtotalSum = summaryRows.reduce((s, r) => s + Number(r['Net Revenue']), 0);
+  check(Number.isFinite(finalRunning) && Math.abs(finalRunning - subtotalSum) <= tol(subtotalSum),
+    `Running Revenue final (${finalRunning}) == grand total of the region subtotals (${subtotalSum})`);
 
   // (d) In-context sum groups at the expected grain — spot-check one real
   // (non-null) region's translated "Regional Net Revenue" (Tier-3 `In`
-  // translation, grouped by [Customer Region] per its warning) against an
-  // INDEPENDENT element's raw grouped query for the same region.
-  const rawRows = dedupeByRegion(await exportElementRows(workbookId, rawCheck.id));
-  console.log('Region Raw Check (per region):', JSON.stringify(rawRows.map(r => ({
-    region: r['Customer Region'], net: r['Net Revenue'],
-  })), null, 2));
+  // translation) against the INDEPENDENT raw grouped query for the same region.
   const spot = summaryRows.find(r => r['Customer Region'] != null);
   const spotRegion = spot?.['Customer Region'];
   const spotFromTranslated = Number(spot?.['Regional Net Revenue']);
-  const spotRaw = rawRows.find(r => r['Customer Region'] === spotRegion);
-  const spotFromRaw = spotRaw ? Number(spotRaw['Net Revenue']) : NaN;
+  const spotFromRaw = rawNetByRegion.get(spotRegion);
   check(
     spotRegion != null && Number.isFinite(spotFromTranslated) && Number.isFinite(spotFromRaw) &&
     Math.abs(spotFromTranslated - spotFromRaw) <= tol(spotFromRaw),
@@ -484,14 +468,51 @@ async function main() {
   check(bucketValues.length > 0, `Region Bucket Check returned ${bucketValues.length} non-empty "Region Bucket" value(s) (DM-placed dimension is not blank/broken)`);
   check(bucketValues.every(v => v === 'West' || v === 'Other'), 'every "Region Bucket" value is "West" or "Other" (DM-placed dimension calc column resolves correctly on real data)');
 
+  // ── Step 9: UNGROUPED-SORT live verification (Task 3 open question #2) ──────
+  // The converter emits an element-level `sort: [{columnId,direction}]` for a
+  // table that has a Webi sort but NO break (unit-tested offline). Prove that
+  // exact shape actually ORDERS rows on the live API — the answer to the
+  // "where does sort go on an ungrouped table?" open question (element-level
+  // `sort`, not a grouping and not a guessed field). This is a harness-owned
+  // probe element in its own throwaway workbook (NOT converter output), with a
+  // top-n filter to bound the export — a real ungrouped table over the fact
+  // would otherwise return every detail row.
+  const rnd = () => Math.random().toString(36).slice(2, 8);
+  const uReg = `c-${rnd()}`, uNet = `c-${rnd()}`;
+  const qcol = f => f.replace(/\[([^\]\/]+)\]/g, (_m, i) => `[${view.name}/${i}]`);
+  const sortProbe = {
+    name: 'E2E Webi Ungrouped Sort Probe', folderId: FOLDER_ID, schemaVersion,
+    pages: [{ id: `page-${rnd()}`, name: 'P', elements: [{
+      id: `tbl-${rnd()}`, kind: 'table', name: 'Ungrouped Sort',
+      source: { kind: 'data-model', dataModelId, elementId: view.id },
+      columns: [
+        { id: uReg, name: 'Customer Region', formula: qcol('[Customer Region]') },
+        { id: uNet, name: 'Net Rev Raw', formula: qcol('[Net Revenue]') },
+      ],
+      order: [uReg, uNet],
+      filters: [{ id: `f-${rnd()}`, columnId: uNet, kind: 'top-n', rankingFunction: 'rank', mode: 'top-n', rowCount: 300, includeNulls: 'when-no-value-is-selected' }],
+      sort: [{ columnId: uReg, direction: 'descending' }],
+    }] }],
+  };
+  const sortProbeId = await postWorkbook(sortProbe);
+  if (!sortProbeId) throw new Error('ungrouped-sort probe workbook POST returned no id');
+  created.workbookIds.push(sortProbeId);
+  const sortElId = (await listPageElements(sortProbeId)).find(e => e.name === 'Ungrouped Sort')?.elementId;
+  const sortProbeRows = await exportElementRows(sortProbeId, sortElId);
+  const nonNullRegions = sortProbeRows.map(r => r['Customer Region']).filter(v => v != null && v !== '');
+  let sortedDesc = nonNullRegions.length > 1;
+  for (let i = 1; i < nonNullRegions.length; i++) if (String(nonNullRegions[i - 1]) < String(nonNullRegions[i])) { sortedDesc = false; break; }
+  console.log(`\nUngrouped sort probe: ${sortProbeRows.length} row(s); non-null region sequence (first 10): ${JSON.stringify(nonNullRegions.slice(0, 10))}`);
+  check(sortedDesc, `Ungrouped sort: element-level sort ordered the rows Customer-Region DESCENDING (${[...new Set(nonNullRegions)].join(' > ')})`);
+
   console.log(failures ? `\n❌ ${failures} assertion(s) failed — NOT green.` : '\n✅ all live tie-out assertions passed.');
 }
 
 async function cleanup() {
   console.log('\nCleanup:');
-  if (created.workbookId) {
-    try { await deleteFile(created.workbookId); console.log(`  deleted workbook ${created.workbookId}`); }
-    catch (e) { console.log(`  ⚠ failed to delete workbook ${created.workbookId}: ${e.message}`); }
+  for (const id of created.workbookIds) {
+    try { await deleteFile(id); console.log(`  deleted workbook ${id}`); }
+    catch (e) { console.log(`  ⚠ failed to delete workbook ${id}: ${e.message}`); }
   }
   if (created.dataModelId) {
     try { await deleteFile(created.dataModelId); console.log(`  deleted data model ${created.dataModelId}`); }
