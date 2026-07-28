@@ -420,6 +420,7 @@ function blockToElement(block, src, measFormula, dimRef, warnings) {
   const meas = (block.measures || []);   // keep raw name for measureMap lookup
 
   if (block.kind === 'cell') {
+    if ((block.alerters || []).length) warnings.push(`Block "${block.title || block.kind}": alerter(s) on a ${block.kind} — Sigma conditional formatting applies to tables/pivots; re-create in Sigma.`);
     const m = meas[0] || dims[0];
     if (!m) return null;
     const vId = uid('v');
@@ -429,6 +430,7 @@ function blockToElement(block, src, measFormula, dimRef, warnings) {
   }
 
   if (block.kind === 'chart') {
+    if ((block.alerters || []).length) warnings.push(`Block "${block.title || block.kind}": alerter(s) on a ${block.kind} — Sigma conditional formatting applies to tables/pivots; re-create in Sigma.`);
     const kind = sigmaChartKind(block.chartType);
     if (!dims.length && !meas.length) return null;
     const xId = uid('x'), cols = [];
@@ -444,14 +446,16 @@ function blockToElement(block, src, measFormula, dimRef, warnings) {
   }
 
   if (block.kind === 'crosstab') {
-    const cols = [];
+    const cols = [], colByName = new Map();
     const rowIds = [], colIds_ = [], valIds = [];
-    for (const d of (block.rows && block.rows.length ? block.rows.map(displayName) : dims)) { const id = uid('r'); cols.push({ id, name: d, formula: dimRef(d) }); rowIds.push(id); }
-    for (const d of (block.cols || []).map(displayName)) { const id = uid('k'); cols.push({ id, name: d, formula: dimRef(d) }); colIds_.push(id); }
-    for (const m of meas) { const id = uid('v'); cols.push({ id, name: displayName(m), formula: measFormula(m) }); valIds.push(id); }
+    for (const d of (block.rows && block.rows.length ? block.rows.map(displayName) : dims)) { const id = uid('r'); cols.push({ id, name: d, formula: dimRef(d) }); rowIds.push(id); colByName.set(d, id); }
+    for (const d of (block.cols || []).map(displayName)) { const id = uid('k'); cols.push({ id, name: d, formula: dimRef(d) }); colIds_.push(id); colByName.set(d, id); }
+    for (const m of meas) { const id = uid('v'); const nm = displayName(m); cols.push({ id, name: nm, formula: measFormula(m) }); valIds.push(id); colByName.set(nm, id); }
     if (!rowIds.length && !colIds_.length) warnings.push(`Crosstab "${block.title || ''}" has no row/column axis — verify.`);
-    return { id: uid('pivot'), kind: 'pivot-table', name: block.title || 'Crosstab', source: src,
+    const el = { id: uid('pivot'), kind: 'pivot-table', name: block.title || 'Crosstab', source: src,
       columns: cols, rowsBy: rowIds.map(id => ({ id })), columnsBy: colIds_.map(id => ({ id })), values: valIds };
+    buildConditionalFormats(block, el, colByName, warnings);
+    return el;
   }
 
   // default: table
@@ -461,6 +465,7 @@ function blockToElement(block, src, measFormula, dimRef, warnings) {
   if (!cols.length) return null;
   const el = { id: uid('tbl'), kind: 'table', name: block.title || 'Table', source: src, columns: cols, order };
   buildGroupings(block, el, colByName, measColIds, warnings);
+  buildConditionalFormats(block, el, colByName, warnings);
   return el;
 }
 
@@ -478,6 +483,40 @@ const OTHER_RUNNING_CALCS = [
   [/^Lag\(\s*\[[^\]]+\]\s*\)$/, 'Lag'],
   [/^\(CumulativeSum\(\s*\[[^\]]+\]\s*\)\s*\/\s*CumulativeCount\(\s*\[[^\]]+\]\s*\)\)$/, 'RunningAverage ratio'],
 ];
+
+// Webi alerter operator → Sigma conditionalFormats `condition`. Symbols pass
+// through; common word forms are mapped. (Exact Sigma strings for >=,<=,=,<>
+// are confirmed live in the E2E — adjust here if the API differs.)
+const CF_OP = {
+  '>': '>', '<': '<', '>=': '>=', '<=': '<=', '=': '=', '==': '=', '<>': '<>', '!=': '<>',
+  greaterthan: '>', lessthan: '<', greaterorequal: '>=', lessorequal: '<=',
+  equalto: '=', notequalto: '<>', greaterthanorequal: '>=', lessthanorequal: '<=',
+};
+// Emit element-level `conditionalFormats` from a block's alerters. Mutates `el`.
+// Only single-condition threshold rules with a mappable operator + a color
+// produce an entry; `between`, unmappable operators, missing columns, and
+// KPI/chart targets are warned and skipped. Border/size/content/image style
+// props were flagged `unsupported` at ingest and are warned here.
+function buildConditionalFormats(block, el, colByName, warnings) {
+  const rules = block.alerters || [];
+  if (!rules.length) return;
+  const out = [];
+  for (const r of rules) {
+    for (const u of (r.unsupported || [])) warnings.push(`${el.name}: alerter "${r.name || r.column}" uses "${u}" — not representable in a Sigma conditional format; color part kept, "${u}" dropped.`);
+    const op = r.operator?.toString().toLowerCase();
+    if (r.value2 != null || op === 'between') { warnings.push(`${el.name}: alerter "${r.name || r.column}" uses a range/Between — not emitted (no single-condition Sigma equivalent); re-create in Sigma.`); continue; }
+    const condition = CF_OP[r.operator] || CF_OP[op];
+    if (!condition) { warnings.push(`${el.name}: alerter operator "${r.operator}" has no Sigma mapping — skipped.`); continue; }
+    const cid = colByName.get(r.column) || colByName.get(displayName(r.column));
+    if (!cid) { warnings.push(`${el.name}: alerter target "${r.column}" is not a column on the element — skipped.`); continue; }
+    const style = {};
+    if (r.style?.backgroundColor) style.backgroundColor = r.style.backgroundColor;
+    if (r.style?.color) style.color = r.style.color;   // text-color field name confirmed live in E2E
+    if (!Object.keys(style).length) { warnings.push(`${el.name}: alerter "${r.name || r.column}" has no color to apply — skipped.`); continue; }
+    out.push({ type: 'single', columnIds: [cid], condition, value: r.value, style });
+  }
+  if (out.length) el.conditionalFormats = out;
+}
 
 // Build Sigma table `groupings` (and, for an ungrouped table, an element-level
 // `sort`) from a block's breaks/sections + sort. Productionizes the Task-8 E2E
