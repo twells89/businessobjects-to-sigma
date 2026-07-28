@@ -59,7 +59,8 @@ check(nf.warnings.some(w => /NoFilter/.test(w) && /unfiltered element/i.test(w))
 const at = translateWebiFormula('=@Prompt("Enter region")');
 check(at.warnings.some(w => /@Prompt/i.test(w) && /control|parameter/i.test(w)), '@Prompt → model as control/parameter');
 const bad = translateWebiFormula('=Sum([Revenue] ((( ');
-check(Array.isArray(bad.warnings) && typeof bad.sigma === 'string', 'malformed input degrades to warned stub, never throws');
+check(Array.isArray(bad.warnings) && bad.warnings.length > 0 && typeof bad.sigma === 'string',
+      'malformed input → warned stub (warning pushed, sigma is a string), never throws');
 const unknown = translateWebiFormula('=NoSuchFn([X])');
 check(unknown.warnings.some(w => /NoSuchFn/i.test(w)), 'unknown function is flagged for manual review');
 
