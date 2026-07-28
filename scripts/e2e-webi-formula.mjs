@@ -41,9 +41,21 @@ const created = { dataModelId: null, workbookId: null };
 
 async function sigmaGet(path) {
   const tok = await sigmaToken();
-  const res = await fetch(`${SIGMA_BASE}${path}`, { headers: { Authorization: `Bearer ${tok}` } });
-  const txt = await res.text();
-  if (!res.ok) throw new Error(`GET ${path} → HTTP ${res.status} ${txt.slice(0, 400)}`);
+  let res, txt;
+  try {
+    res = await fetch(`${SIGMA_BASE}${path}`, { headers: { Authorization: `Bearer ${tok}` } });
+    txt = await res.text();
+  } catch (e) {
+    // Pre/mid-response failure (connection refused/reset, DNS, etc.) — no
+    // HTTP status to report. Left as `err.status === undefined` so callers
+    // can tell this apart from a real HTTP error response.
+    throw new Error(`GET ${path} → network error: ${e.message}`);
+  }
+  if (!res.ok) {
+    const err = new Error(`GET ${path} → HTTP ${res.status} ${txt.slice(0, 400)}`);
+    err.status = res.status;
+    throw err;
+  }
   try { return JSON.parse(txt); } catch { return txt; }
 }
 
@@ -60,37 +72,86 @@ async function listPageElements(workbookId) {
 }
 
 /**
+ * GET one element's /query, retrying a transient 5xx/network failure within a
+ * bounded budget — the same attempt budget + delay (maxWaitMs/pollMs) the
+ * export/download path below already uses for the same class of infra blip.
+ * Distinguishes the one legitimate non-retry case from everything else:
+ *   - a genuine 4xx (not 429) means this element isn't queryable at all (e.g.
+ *     a control) — skip it, no retry, not a problem.
+ *   - a 429, a 5xx, or a network-level error (no HTTP status at all) is
+ *     transient — retry. If it still hasn't succeeded once the budget is
+ *     exhausted, that's a real failure, returned so the caller records it as
+ *     a problem instead of silently swallowing it.
+ */
+async function queryElementWithRetry(workbookId, elementId, { maxWaitMs = 90000, pollMs = 1500 } = {}) {
+  const start = Date.now();
+  let lastErr;
+  do {
+    try {
+      return { data: await sigmaGet(`/v2/workbooks/${workbookId}/elements/${elementId}/query`) };
+    } catch (e) {
+      lastErr = e;
+      if (e.status !== undefined && e.status >= 400 && e.status < 500 && e.status !== 429) {
+        return { skip: true }; // genuine 4xx on a non-queryable element (e.g. a control)
+      }
+      await new Promise(r => setTimeout(r, pollMs));
+    }
+  } while (Date.now() - start < maxWaitMs);
+  return { error: lastErr };
+}
+
+/**
  * "describe": list every element, then pull each element's compiled SQL
  * (GET /v2/workbooks/{id}/elements/{eid}/query) and scan it for Sigma's two
- * documented unresolved-formula error markers. This mirrors exactly what the
- * sigma-workbooks skill's own post-create verifier (verify-workbook.sh) does
- * — POST /v2/workbooks/spec is generous and accepts specs whose formulas
- * don't actually resolve; the failure only surfaces as a string literal
- * embedded in the compiled SQL at query time. A column alias containing
- * "--metric-" is a known-benign internal SELECT-* artifact and is excluded.
+ * documented unresolved-formula error markers — POST /v2/workbooks/spec is
+ * generous and accepts specs whose formulas don't actually resolve; the
+ * failure only surfaces as a string literal embedded in the compiled SQL at
+ * query time. A column alias containing "--metric-" is a known-benign
+ * internal SELECT-* artifact and is excluded. A transient 5xx/network error
+ * on the per-element /query probe is retried (see queryElementWithRetry); if
+ * it still fails after exhausting the budget, that's recorded as a problem
+ * (the gate fails) rather than swallowed — only a genuine 4xx on a
+ * non-queryable element (e.g. a control) is a legitimate skip.
  */
 async function describeWorkbook(workbookId) {
   const elements = await listPageElements(workbookId);
   const problems = [];
   for (const el of elements) {
     if (el.error) problems.push(`${el.name} (${el.elementId}): element error: ${el.error}`);
-    try {
-      const q = await sigmaGet(`/v2/workbooks/${workbookId}/elements/${el.elementId}/query`);
-      if (q.error) problems.push(`${el.name}: query error: ${q.error}`);
-      const sql = q.sql || '';
-      const markers = sql.match(/Unknown column "[^"]+"|Circular column reference to \[[^\]]+\]/g) || [];
-      const real = markers.filter(m => !/--metric-/.test(m));
-      real.forEach(m => problems.push(`${el.name}: ${m}`));
-    } catch {
-      // /query 4xx's on controls and other non-queryable elements — not a failure.
+    const result = await queryElementWithRetry(workbookId, el.elementId);
+    if (result.skip) continue;
+    if (result.error) {
+      problems.push(`${el.name} (${el.elementId}): /query never succeeded after retries: ${result.error.message}`);
+      continue;
     }
+    const q = result.data;
+    if (q.error) problems.push(`${el.name}: query error: ${q.error}`);
+    const sql = q.sql || '';
+    const markers = sql.match(/Unknown column "[^"]+"|Circular column reference to \[[^\]]+\]/g) || [];
+    const real = markers.filter(m => !/--metric-/.test(m));
+    real.forEach(m => problems.push(`${el.name}: ${m}`));
   }
   return { elements, problems };
 }
 
-/** Kick off an element export → queryId, retrying a transient 5xx/429/socket
- *  reset at kickoff (within the same time budget) so a gateway blip isn't a
- *  false red. A 4xx (bad element/auth) is fatal. */
+/**
+ * Kick off an element export → queryId. The POST is NOT safely idempotent —
+ * if the server actually received it, an export job may already have been
+ * created even if the client never saw a clean success response. So the
+ * retry here is scoped to only the failures that happened BEFORE any server
+ * response:
+ *   - a network-level error (connection refused/reset, DNS, etc. — no HTTP
+ *     status at all) means the POST never reached/was answered by the
+ *     server, so resending is safe.
+ *   - HTTP 429 means the server's rate limiter rejected the request before
+ *     it was processed (no export job created), so resending is also safe.
+ * Any other HTTP response — a genuine 4xx (bad element/auth) OR a 5xx — means
+ * the server received the request and answered it; for a 5xx we cannot tell
+ * whether an export job was already accepted server-side before the error,
+ * so it is treated as fatal here rather than retried (retrying by re-POSTing
+ * could start a duplicate export job). The download-poll GET below is a
+ * separate, idempotent operation and keeps retrying 5xx as before.
+ */
 async function startExport(workbookId, elementId, tok, maxWaitMs, pollMs) {
   const start = Date.now();
   let lastTransient = '';
@@ -110,11 +171,15 @@ async function startExport(workbookId, elementId, tok, maxWaitMs, pollMs) {
       if (queryId) return queryId;
       throw new Error(`export ${elementId}: no queryId in response: ${txt.slice(0, 400)}`);
     }
-    if (res.status >= 400 && res.status < 500 && res.status !== 429) {
-      throw new Error(`export ${elementId} → HTTP ${res.status} ${txt.slice(0, 400)}`);
+    if (res.status === 429) {
+      lastTransient = `HTTP 429 ${txt.slice(0, 200)}`;
+      await new Promise(r => setTimeout(r, pollMs));
+      continue;
     }
-    lastTransient = `HTTP ${res.status} ${txt.slice(0, 200)}`;
-    await new Promise(r => setTimeout(r, pollMs));
+    // Any other non-2xx response — 4xx or 5xx — is fatal, not retried: the
+    // server received and answered the POST, so re-POSTing a 5xx risks
+    // creating a duplicate export job (see docstring above).
+    throw new Error(`export ${elementId} → HTTP ${res.status} ${txt.slice(0, 400)}`);
   }
   throw new Error(`export ${elementId}: kickoff never succeeded within ${maxWaitMs}ms${lastTransient ? ` (last transient: ${lastTransient})` : ''}`);
 }
@@ -127,8 +192,10 @@ async function startExport(workbookId, elementId, tok, maxWaitMs, pollMs) {
  */
 async function exportElementRows(workbookId, elementId, { maxWaitMs = 90000, pollMs = 1500 } = {}) {
   const tok = await sigmaToken();
-  // The POST that kicks off the export is itself retried on a transient 5xx/429
-  // (see startExport) so a warehouse/gateway blip at kickoff isn't a false red.
+  // The POST that kicks off the export retries only pre-response network
+  // failures and HTTP 429 (see startExport) — never a 5xx, since the server
+  // may have already accepted the export and re-POSTing risks starting a
+  // duplicate export job.
   const queryId = await startExport(workbookId, elementId, tok, maxWaitMs, pollMs);
 
   const start = Date.now();
