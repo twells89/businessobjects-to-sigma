@@ -53,6 +53,35 @@ export async function getDataModelSpec(dataModelId) {
   return req('GET', `/v2/dataModels/${dataModelId}/spec`);
 }
 
+/**
+ * PUT a full spec back to update an EXISTING data model in place (e.g. after
+ * merging dataModelAdditions into its View element).
+ *
+ * CONFIRMED live in Task 8 against the Sigma "code representation" OpenAPI
+ * (https://help.sigmacomputing.com/openapi/openapi/code-representation.json →
+ * `/v2/dataModels/{dataModelId}/spec`): the update verb is **PUT**, not POST
+ * (POST on that path is CREATE-only, matching `postDataModel` above; a POST
+ * here 404s/405s). The original assumption in this function's previous
+ * revision was wrong on the verb — corrected here. Body is
+ * `{ schemaVersion, pages }`. Per the endpoint docs, only `pages` (+
+ * `schemaVersion`) are read — other top-level fields are ignored — and this
+ * is a full-representation replace, not a partial patch.
+ *
+ * Normalizes its input so callers can pass back whatever `getDataModelSpec`
+ * handed them, unmodified shape and all: some DM-spec GET responses nest
+ * `pages` under `spec.spec.pages` rather than a flat `spec.pages` (the same
+ * uncertainty `mergeAdditionsIntoView` already hedges — see dm-merge.mjs).
+ * Deliberately does NOT also tolerate a bare `spec.elements[]` shape — a live
+ * spec always carries `.pages`, and mergeAdditionsIntoView (dm-merge.mjs) was
+ * intentionally narrowed to the same two shapes so an in-place mutation there
+ * is guaranteed to be visible to this PUT (a mismatch would silently drop it).
+ */
+export async function postDataModelSpec(dataModelId, spec) {
+  const pages = spec.pages || spec.spec?.pages;
+  const schemaVersion = spec.schemaVersion ?? spec.spec?.schemaVersion ?? 2;
+  return req('PUT', `/v2/dataModels/${dataModelId}/spec`, { schemaVersion, pages });
+}
+
 /** Read the current workbook schemaVersion from any reference workbook (spec is YAML). */
 export async function referenceWorkbookSchemaVersion() {
   const list = await req('GET', '/v2/workbooks?limit=1');

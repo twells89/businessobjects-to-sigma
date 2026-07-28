@@ -21,17 +21,20 @@
  *   chart                     → {bar,line,pie,area,...}-chart element
  *   free-standing measure cell→ kpi-chart element
  *   document / report filter  → workbook control (best-effort)
- *
- * NOTE: not committed to git yet (per request) — lives in ~/bobj-webi-converter/.
  */
 
 // ── IR ───────────────────────────────────────────────────────────────────────
 
 /** @typedef {{kind:'table'|'crosstab'|'chart'|'cell', title?:string,
  *   dimensions:string[], measures:string[], chartType?:string,
- *   rows?:string[], cols?:string[]}} WebiBlock */
+ *   rows?:string[], cols?:string[],
+ *   formulaByName?:Record<string,string>}} WebiBlock */
 /** @typedef {{name:string, blocks:WebiBlock[]}} WebiReport */
-/** @typedef {{name:string, reports:WebiReport[], filters:{name:string,expression?:string}[]}} WebiDocument */
+/** @typedef {{name:string, qualification?:string, formula:string}} WebiVariable */
+/** @typedef {{name:string, reports:WebiReport[], filters:{name:string,expression?:string}[],
+ *   variables:WebiVariable[]}} WebiDocument */
+
+import { translateWebiFormula } from './webi-formula.mjs';
 
 let _seq = 0;
 function uid(prefix = 'el') { return `${prefix}-${(++_seq).toString(36)}${Math.random().toString(36).slice(2, 6)}`; }
@@ -88,7 +91,15 @@ export function normalizeWebiDocument(input) {
       filters.push({ name: f.name || f.filterName || 'Filter', expression: f.expression || f.definition || f.sql || f.condition });
     }
   }
-  return { name, reports, filters };
+
+  const variables = [];
+  const rawVars = root.variables || input?.variables;
+  if (Array.isArray(rawVars)) for (const v of rawVars) variables.push({
+    name: v.name || v.variableName || 'Variable',
+    qualification: (v.qualification || v.type || '').toString().toLowerCase() || undefined,
+    formula: v.formula || v.definition || v.expression || '',
+  });
+  return { name, reports, filters, variables };
 }
 
 function normalizeBlock(b) {
@@ -96,6 +107,26 @@ function normalizeBlock(b) {
   const dimsIn = b.dimensions || b.dims || b.axisDimensions || [];
   const measIn = b.measures || b.metrics || b.axisMeasures || [];
   const exprNames = arr => (arr || []).map(x => (typeof x === 'string' ? x : (x.name || x.label || x.expression || ''))).filter(Boolean);
+  // An in-place cell/column formula — a dimension/measure entry that is an
+  // OBJECT carrying its own formula/expression/definition (raw Raylight calls
+  // this `dataExpression`), NOT a named report variable — is kept alongside
+  // its plain name so blockToElement can translate + qualify it, taking
+  // precedence over the name-based variable/measureMap resolution. A plain
+  // string entry has no inline formula (existing name-only behavior).
+  const formulaByName = {};
+  const captureFormulas = arr => {
+    for (const x of (arr || [])) {
+      if (!x || typeof x !== 'object') continue;
+      const name = x.name || x.label;
+      if (!name) continue; // no distinct name (e.g. name derived solely from `expression`) — nothing to key a formula on
+      const formula = x.formula || x.dataExpression || x.expression || x.definition;
+      if (!formula) continue;
+      formulaByName[name] = formula;
+      formulaByName[displayName(name)] = formula;
+    }
+  };
+  captureFormulas(dimsIn);
+  captureFormulas(measIn);
   let kind = 'table';
   if (/cross|matrix|pivot/i.test(rawType)) kind = 'crosstab';
   else if (/chart|graph|plot/i.test(rawType)) kind = 'chart';
@@ -109,6 +140,7 @@ function normalizeBlock(b) {
     measures: exprNames(measIn),
     rows: exprNames(b.rows || b.rowAxis),
     cols: exprNames(b.cols || b.columnAxis),
+    formulaByName,
   };
 }
 
@@ -122,15 +154,28 @@ function walkRaylight(node, out) {
     if (looksBlock) {
       const exprs = n.dataExpressions || n.expressions || [];
       const dims = [], meas = [];
+      // Same in-place formula capture as normalizeBlock (friendly shape): a
+      // raw Raylight expression carrying its own formula text — `dataExpression`
+      // is RWS's field name for this, `formula`/`expression`/`definition` cover
+      // other shapes — is kept alongside its name, NOT as a named report
+      // variable. Keyed under both the raw name and its displayName() form
+      // (mirroring normalizeBlock) so withInlineFormula resolves it whether
+      // blockToElement calls in with the raw name (measures) or the
+      // displayName()'d one (dimensions).
+      const formulaByName = {};
       for (const e of exprs) {
         const nm = e.name || e.label || e.expression || '';
         const q = (e.qualification || e.dataType || e.kind || '').toString().toLowerCase();
+        const distinctName = e.name || e.label; // not derived solely from `expression` — nothing to key a formula on otherwise
+        const formula = e.formula || e.dataExpression || e.expression || e.definition;
+        if (distinctName && formula) { formulaByName[distinctName] = formula; formulaByName[displayName(distinctName)] = formula; }
         if (/measure/.test(q)) meas.push(nm); else dims.push(nm);
       }
       out.push({
         kind: /cross/i.test(t) ? 'crosstab' : /chart/i.test(t) ? 'chart' : /cell/i.test(t) ? 'cell' : 'table',
         title: n.name || n.title, chartType: n.chartType || t,
         dimensions: dims.filter(Boolean), measures: meas.filter(Boolean), rows: [], cols: [],
+        formulaByName,
       });
     }
     // Recurse into containers.
@@ -171,12 +216,118 @@ export function convertWebiToWorkbook(input, options = {}) {
   const dimRef = dim => q(`[${dim}]`);
   const measFormula = name => q(measureMap[name] || measureMap[displayName(name)] || `Sum([${displayName(name)}])`);
 
+  // ── Variables (Webi report-scoped formulas) → dataModelAdditions / calc cols ─
+  // A context-free variable (Tier 1/no window/no context-op) is a candidate DM
+  // metric or column — Task 7 will add it to the bound View element. A
+  // layout-dependent one (window fn or context operator forced `placement:
+  // 'workbook'`) can only live as a workbook calc column on the element that
+  // uses it, since it depends on the element's own grouping/partition.
+  //
+  // dataModelAdditions.metrics/columns formulas are BARE (unqualified), never
+  // q()-qualified: they land ON the View element they'll be merged into
+  // (scripts/dm-merge.mjs), so they reference that element's own sibling
+  // columns the same way any same-element DM metric/calc column does elsewhere
+  // in this project (see converters/bobj.mjs::translateBobjExpr — `Sum(Table.Col)`
+  // becomes a bare `Sum([Col])`, never `[TableView/Col]`). Qualifying a
+  // same-element formula would make it a self-referential cross-element path.
+  const dataModelAdditions = { metrics: [], columns: [] };
+  const workbookVarFormula = new Map();   // variable name → qualified workbook formula
+  // A DM-placed MEASURE variable's INLINE translated+qualified formula (it
+  // re-aggregates the raw View columns, e.g. Sum([View/Net]) / Sum([View/Gross])).
+  // This is what a block column that references the measure must resolve to —
+  // NOT the metric by column-path — because a DM metric is NOT addressable as
+  // `[Element/MetricName]` from a workbook (live-verified in Task 8: POST
+  // /v2/workbooks/spec 400s "Dependency not found: 'order fact view/margin
+  // pct'"), whereas the raw columns it re-aggregates DO resolve. The metric
+  // still lands in dataModelAdditions.metrics (governance/reuse, per the
+  // split-by-kind design), and the workbook stays self-resolving — identical to
+  // how the existing base-measure path already works (raw column on the View,
+  // aggregate applied in the workbook).
+  const dmMeasureInline = new Map();      // DM-placed measure var name → inline qualified formula
+  // A DM-placed DIMENSION variable becomes a real calc COLUMN on the View, so
+  // it IS addressable by column-path `[sourceName/Name]` (unlike a metric).
+  const dmColumnNames = new Set();
+  for (const v of doc.variables) {
+    if (!v.formula) continue;
+    const tr = translateWebiFormula(v.formula, { qualification: v.qualification });
+    tr.warnings.forEach(w => warnings.push(`Variable "${v.name}": ${w}`));
+    // Two DISTINCT resolution forms for the SAME translated formula (tr.sigma),
+    // per the DM convention already established in bobj.mjs
+    // (translateBobjExpr): a formula that LIVES ON an element references that
+    // element's own sibling columns BARE (e.g. `Sum([Net Revenue])` on a table
+    // that itself has a "Net Revenue" column) — `[ElementName/Col]` is reserved
+    // for a CROSS-element lookup. A DM addition (below) lands ON the bound View
+    // element itself, so qualifying it would make it a self-referential
+    // cross-element path (`Sum([Order Fact View/Net Revenue])` placed ON "Order
+    // Fact View"). `qualified` is still correct — and used — for the WORKBOOK's
+    // inline resolution of a DM-placed variable: there, the calc column lives on
+    // a separate workbook element that reaches INTO the View from the outside,
+    // where `[sourceName/Col]` is a correct, live-verified (Task 8) cross-element
+    // reference.
+    const qualified = q(tr.sigma);
+    if (tr.placement === 'dm') {
+      if (tr.kind === 'measure') {
+        // DM addition: BARE (same-element sibling ref).
+        if (!dataModelAdditions.metrics.some(x => x.name === v.name)) dataModelAdditions.metrics.push({ id: uid('add'), name: v.name, formula: tr.sigma });
+        // Workbook inline resolution of this measure: QUALIFIED (cross-element,
+        // from the workbook into the View) — see dmMeasureInline's own comment.
+        dmMeasureInline.set(v.name, qualified);
+      } else {
+        // DM addition: BARE (same-element sibling ref) — mirrors the measure
+        // case above; a DM-placed dimension's own formula (e.g. the If(...) that
+        // becomes a calc column on the View) references its sibling columns
+        // bare too.
+        if (!dataModelAdditions.columns.some(x => x.name === v.name)) dataModelAdditions.columns.push({ id: uid('add'), name: v.name, formula: tr.sigma });
+        dmColumnNames.add(v.name);
+      }
+    } else {
+      workbookVarFormula.set(v.name, qualified);
+    }
+  }
+
+  // Resolve a block dim/measure name to the right formula source, in order:
+  //   1. a workbook-placed variable → its own translated+qualified calc,
+  //   2. a DM-placed MEASURE variable → its inline re-aggregated formula
+  //      (Sum([View/Net]) / Sum([View/Gross])), NOT a metric column-path ref
+  //      (that 400s at workbook POST) and NOT the plain Sum([Name]) default,
+  //   3. a DM-placed DIMENSION variable → a qualified column-path ref
+  //      `[sourceName/Name]` to the calc column Task 7 adds to the View,
+  //   4. none → unchanged existing behavior (fallback: measFormula/dimRef).
+  const resolveRef = (name, fallback) => {
+    const dn = displayName(name);
+    if (workbookVarFormula.has(name)) return workbookVarFormula.get(name);
+    if (workbookVarFormula.has(dn)) return workbookVarFormula.get(dn);
+    if (dmMeasureInline.has(name)) return dmMeasureInline.get(name);
+    if (dmMeasureInline.has(dn)) return dmMeasureInline.get(dn);
+    if (dmColumnNames.has(name)) return q(`[${name}]`);
+    if (dmColumnNames.has(dn)) return q(`[${dn}]`);
+    return fallback(name);
+  };
+  const resolvedMeasFormula = name => resolveRef(name, measFormula);
+  const resolvedDimRef = name => resolveRef(name, dimRef);
+
+  // An inline block-column formula (block.formulaByName, from normalizeBlock —
+  // an in-place cell/column expression, NOT a named report variable) takes
+  // PRECEDENCE over the name-based resolveRef resolution above: an explicit
+  // per-column formula always wins over a name match. Wrapping the resolver
+  // per block (rather than threading `q`/formulaByName into blockToElement
+  // itself) keeps blockToElement's cell/chart/crosstab/table bodies — and
+  // Task 5's resolveRef path they already call through — completely
+  // untouched, so this can't regress them.
+  const withInlineFormula = (block, resolver) => (name) => {
+    const raw = block.formulaByName && (block.formulaByName[name] ?? block.formulaByName[displayName(name)]);
+    if (raw == null) return resolver(name);
+    const tr = translateWebiFormula(raw, {});
+    tr.warnings.forEach(w => warnings.push(`Block "${block.title || block.kind}": ${w}`));
+    return q(tr.sigma);
+  };
+
   const pages = [];
   for (const report of doc.reports) {
     const pageId = uid('page');
     const elements = [];
     for (const block of report.blocks) {
-      const el = blockToElement(block, src, measFormula, dimRef, warnings);
+      const el = blockToElement(block, src, withInlineFormula(block, resolvedMeasFormula), withInlineFormula(block, resolvedDimRef), warnings);
       if (el) elements.push(el);
       else warnings.push(`Report "${report.name}": block "${block.title || block.kind}" (${block.kind}) produced no element — review manually.`);
     }
@@ -208,6 +359,7 @@ export function convertWebiToWorkbook(input, options = {}) {
 
   return {
     workbook: { name: workbookName || doc.name, folderId, schemaVersion, pages },
+    dataModelAdditions,
     warnings,
     stats,
   };
