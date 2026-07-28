@@ -43,5 +43,14 @@ check(ra.sigma === '(CumulativeSum([Revenue]) / CumulativeCount([Revenue]))', 'R
 check(ra.placement === 'workbook', 'RunningAverage forces placement workbook');
 check(ra.warnings.some(w => /RunningAverage/i.test(w)), 'RunningAverage emits a verify warning');
 
+// ── Tier 3: context operators ────────────────────────────────────────────────
+const inCtx = translateWebiFormula('=Sum([Revenue]) In ([Region])');
+check(inCtx.placement === 'workbook', 'In context forces placement workbook');
+check(/Sum\(\[Revenue\]\)/.test(inCtx.sigma), 'In: base aggregate preserved');
+check(inCtx.warnings.some(w => /context .*In.*Region/i.test(w)), 'In: emits a grouping warning naming the dims');
+const feCtx = translateWebiFormula('=RunningSum([Revenue]) ForEach ([Month])');
+check(feCtx.warnings.some(w => /ForEach/i.test(w)), 'ForEach warns for manual grouping/reset review');
+check(feCtx.placement === 'workbook', 'ForEach forces placement workbook');
+
 console.log(`\n${failures ? '❌ ' + failures + ' failed' : '✅ all passed'}`);
 process.exit(failures ? 1 : 0);

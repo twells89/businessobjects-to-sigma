@@ -116,7 +116,17 @@ export function parse(toks) {
         const args = [];
         if (!(peek() && peek().v === ')')) { args.push(parseExpr()); while (peek() && peek().t === 'sep') { next(); args.push(parseExpr()); } }
         expect(')');
-        return { t: 'call', name, args };   // Task 3 attaches a context clause here
+        const call = { t: 'call', name, args };
+        const kw = peek();
+        if (kw && kw.t === 'ident' && /^(in|foreach|forall)$/i.test(kw.v)) {
+          next();
+          expect('(');
+          const dims = [];
+          if (peek() && peek().t === 'ref') { dims.push(next().v); while (peek() && peek().t === 'sep') { next(); if (peek() && peek().t === 'ref') dims.push(next().v); } }
+          expect(')');
+          call.ctx = { op: kw.v.replace(/^\w/, c => c.toUpperCase()), dims };
+        }
+        return call;
       }
       return { t: 'ident', v: name };        // bare identifier (e.g. a keyword literal)
     }
@@ -142,6 +152,11 @@ export function emit(node, state) {
     case 'call': {
       const lc = node.name.toLowerCase();
       const args = node.args.map(a => emit(a, state)).join(', ');
+      if (node.ctx) {
+        state.placement = 'workbook';
+        const dimList = node.ctx.dims.join('; ');
+        state.warnings.push(`context operator ${node.ctx.op}(${dimList}) on ${node.name}() — set the Sigma grouping/partition to [${node.ctx.dims.join('], [')}] and verify (auto-grouping not applied in v1).`);
+      }
       if (WINDOW_FN[lc] || WINDOW_SPECIAL.has(lc)) {
         state.placement = 'workbook';
         if (lc === 'runningaverage') {
