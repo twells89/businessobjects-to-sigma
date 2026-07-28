@@ -30,10 +30,18 @@ check(translateWebiFormula('=[Region]').kind === 'dimension', 'bare ref, no qual
 const prev = eq('=Previous([Revenue])', 'Lag([Revenue])', 'Previous → Lag');
 check(prev.placement === 'workbook', 'Previous forces placement workbook');
 eq('=RunningSum([Revenue])', 'CumulativeSum([Revenue])', 'RunningSum → CumulativeSum');
+check(translateWebiFormula('=RunningSum([Revenue])').placement === 'workbook', 'RunningSum forces placement workbook');
 eq('=RunningCount([Order Id])', 'CumulativeCount([Order Id])', 'RunningCount → CumulativeCount');
+check(translateWebiFormula('=RunningCount([Order Id])').placement === 'workbook', 'RunningCount forces placement workbook');
 eq('=Rank([Revenue])', 'Rank([Revenue])', 'Rank → Rank');
 eq('=Percentage([Revenue])', 'PercentOfTotal([Revenue])', 'Percentage → PercentOfTotal');
+check(translateWebiFormula('=Percentage([Revenue])').placement === 'workbook', 'Percentage forces placement workbook');
 check(translateWebiFormula('=Rank([Revenue])').placement === 'workbook', 'Rank forces placement workbook');
+
+const ra = translateWebiFormula('=RunningAverage([Revenue])');
+check(ra.sigma === '(CumulativeSum([Revenue]) / CumulativeCount([Revenue]))', 'RunningAverage → CumulativeSum/CumulativeCount ratio');
+check(ra.placement === 'workbook', 'RunningAverage forces placement workbook');
+check(ra.warnings.some(w => /RunningAverage/i.test(w)), 'RunningAverage emits a verify warning');
 
 console.log(`\n${failures ? '❌ ' + failures + ' failed' : '✅ all passed'}`);
 process.exit(failures ? 1 : 0);
