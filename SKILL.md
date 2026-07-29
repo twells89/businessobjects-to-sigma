@@ -166,7 +166,7 @@ Set expectations with this before promising a Webi migration, and use it as the 
 | Combined queries: Union / Intersect / Minus | 🟡 | Union native; Intersect/Minus via Custom SQL or semi/anti-join |
 | Subqueries; database rankings | 🟡 | joins / CTEs / Custom SQL; `Rank` + top-N pushed to the warehouse |
 | Prompts (`@Prompt`) | 🟡 | → Sigma controls/parameters (warned; can bind to filters or DM SQL) |
-| Condition "In list from **another query**" | 🔴 | Sigma has **no `IsIn`-against-another-element** (it silently errors) — remodel as a join / semi-join |
+| Condition "In list from **another query**" | 🟡 | Semi-join / `IN (subquery)` — what BObj compiles to — runs verbatim in a **Custom SQL** element (or a join). Only *no-code* gap: no "is-in another element" filter / formula-level `IsIn` against another element (that errors). Same connection; cross-connection → blend |
 | Non-universe Excel data provider | 🟡 | Sigma CSV/Excel upload as a source — wire manually |
 | Query properties (refreshable, dup rows, trim) | 🟡 / n/a | data is live/refreshable; "distinct" toggle; `Trim`; some are Webi-only and safely dropped |
 
