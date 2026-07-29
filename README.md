@@ -94,7 +94,7 @@ This is an **agent‑led** migration: the converter produces a faithful first dr
 | Merged objects (inner / union / left outer); subqueries; database rankings; combined queries | 🟡 | Modeled in the **data model**: relationships (many→one), union / Custom SQL, `Rank` + top‑N pushed to the warehouse. Right outer reframed as left; Intersect/Minus via Custom SQL or anti/semi‑join. |
 | Prompts | 🟡 | → Sigma controls / parameters (bind to filters or data‑model SQL). |
 | Non‑universe Excel data providers | 🟡 | Sigma CSV/Excel upload as a source; wired manually. |
-| "In list from another query" | 🔴 | No direct "is‑in another query" operator — re‑model as a join / semi‑join. |
+| "In list from another query" | 🟡 | Compiles to a semi‑join (`WHERE col IN (SELECT …)`) — exactly what BObj emits — and runs verbatim in a Sigma **Custom SQL** element (or as a join). The only gap is *no‑code*: no "is‑in another element" filter / formula‑level `IsIn` against another element. Same connection; cross‑connection → blend. |
 | Query properties (refreshable / duplicate rows / trim) | 🟡 / n/a | Live/refreshable by nature; distinct toggle; `Trim`; some Webi‑only execution settings safely drop. |
 
 **Out of scope:** Crystal Reports, Xcelsius / Design Studio / Lumira (proprietary / retired). Raw `.wid` files aren't parseable directly — see below.
