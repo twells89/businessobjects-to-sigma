@@ -25,7 +25,11 @@ No Java SDK, no Client Tools, no manual exports — one logon token unlocks the 
 
 **Webi document → workbook** (`converters/webi.mjs`)
 - report tab → page · table → table · crosstab → pivot‑table · chart → bar/line/pie/area · measure cell → KPI · filter → control
+- **report variables / formulas** → Sigma formulas: arithmetic, `If`/logic, string, date, aggregations, and the layout family (`Previous→Lag`, `RunningSum→CumulativeSum`, `RunningCount→CumulativeCount`, `Rank`, `Percentage→PercentOfTotal`). Context operators (`In`/`ForEach`/`ForAll`) → grouping / window partitions (best‑effort + warned). Split by kind — context‑free measures/dims become **data‑model additions**, layout/context‑dependent ones stay workbook calc columns.
+- **breaks / sections** → table `groupings` + per‑group **subtotals**; **sort** carried through (in‑grouping or element‑level)
+- **alerters** → `conditionalFormats` — threshold background/text‑color rules on tables & pivots
 - every element binds to the universe's View element; column refs are qualified by the source element name (`[Order Fact View/Net Revenue]`) so nothing self‑references
+- untranslatable pieces (`NoFilter`, `@`‑functions, gradient/border/image alerters, `Between`) are **surfaced as warnings**, never silently dropped
 
 ### Webi input: live documents, not `.wid` files
 
@@ -42,6 +46,58 @@ If all you have is `.wid` files, get them onto a reachable CMS first, then migra
 That's the only path that yields the structured model the converter needs. (The converter IR is tolerant enough that an exported structured representation could be wired as an alternate ingest later — but the `.wid` binary itself doesn't give you one.)
 
 This converter mirrors the `convert_bobj_to_sigma` tool in [`sigma-data-model-mcp`](https://github.com/twells89/sigma-data-model-mcp); `converters/bobj.mjs` + `helpers.mjs` are a faithful standalone port so this repo runs without the MCP server.
+
+## Conversion coverage
+
+This is an **agent‑led** migration: the converter produces a faithful first draft and the agent finishes the report in Sigma. Read the verdicts that way:
+
+- 🟢 **Fully** — produced working, little/no manual finish.
+- 🟡 **Partially** — Sigma fully supports it; a guided rebuild/wiring step (an expected finishing step, not a blocker).
+- 🔴 **Gap** — no clean path today; a documented workaround or remodel.
+
+> **Sigma is not a paginated render engine.** It compiles aggregates and window functions to SQL and runs them in the warehouse over the **entire** result set — the viewport is display only. So "percent of a grand total," running totals, and nested variables compute across all rows regardless of what's scrolled into view (a common Webi worry that simply doesn't apply here). Agent‑facing detail + the per‑report finish‑by‑hand checklist live in [SKILL.md](SKILL.md#webi-feature-coverage).
+
+**Formulas & aggregation**
+
+| Webi | | Notes |
+|---|---|---|
+| Report variables / formulas (arithmetic, `If`, string, date, aggregations) | 🟢 | `converters/webi-formula.mjs` translates; uncommon/BO‑specific functions flagged for review (not a literal 1:1 of all ~180 functions). |
+| Running totals / `Previous` / `Rank` / `Percentage` | 🟢 | → `CumulativeSum` / `CumulativeCount` / `Lag` / `Rank` / `PercentOfTotal` (correct group‑level form on a broken table). |
+| Subtotals · percent of total · ranking | 🟢 | Subtotals auto from breaks; `PercentOfTotal`; `Rank`/`RankDense`/`RankPercentile`. |
+| Grand totals | 🟡 | Native Sigma table footer — one toggle; not auto‑emitted (warned). |
+| Calculation context (`In` / `ForEach` / `ForAll`) | 🟡 | → grouping keys / window partitions; parsed, warns to confirm the grouping. |
+| `NoFilter` | 🔴 | No direct equivalent — compute on a separate unfiltered element (warned). |
+
+**Formatting & layout**
+
+| Webi | | Notes |
+|---|---|---|
+| Sections & breaks | 🟢/🟡 | Breaks → `groupings` + subtotals (auto); sections → outer grouping (auto) + the master‑detail band visual isn't reproduced 1:1. |
+| Sorting | 🟢 | Carried automatically (in‑grouping or element‑level). |
+| Conditional formatting / alerters | 🟢/🟡 | Threshold alerters (`> < >= <= = !=`) → `conditionalFormats` background/text color on tables & pivots (live round‑trip verified). Gradient/data‑bar/border/size/content/image + `Between` + KPI‑cell → warned. |
+| Table types & charts | 🟡 | table / crosstab / bar / line / pie / area / scatter / combo map; exotic viz → nearest equivalent. |
+| Images/logos · colors/fonts/borders · headers/footers · hidden + show/hide · fold/unfold · drill | 🟡 | Supported in Sigma and rebuilt/wired: image elements, theme + conditional formatting, top‑of‑page + export header/footer, conditional visibility, native expand/collapse & drill‑down. |
+| Relative (top/left) positioning · page numbers | 🟡/🔴 | Sigma is a responsive **grid + containers** (not absolute pixels); page numbers exist only in PDF/scheduled **export**, not the interactive canvas. |
+
+**Filtering**
+
+| Webi | | Notes |
+|---|---|---|
+| Filters at all levels (report / table / section); on a formula/variable; on measures | 🟡 | Document filters → controls; scope re‑created as page controls vs element filters; measure filters via top‑N / number‑range. |
+| Input controls · element links | 🟡 | → Sigma controls (list/dropdown/date/top‑N) and cross‑element filters / actions (UI‑wired). |
+
+**Query panel & merge**
+
+| Webi | | Notes |
+|---|---|---|
+| Custom SQL | 🟢/🟡 | Sigma Custom SQL data element — strongly supported. |
+| Merged objects (inner / union / left outer); subqueries; database rankings; combined queries | 🟡 | Modeled in the **data model**: relationships (many→one), union / Custom SQL, `Rank` + top‑N pushed to the warehouse. Right outer reframed as left; Intersect/Minus via Custom SQL or anti/semi‑join. |
+| Prompts | 🟡 | → Sigma controls / parameters (bind to filters or data‑model SQL). |
+| Non‑universe Excel data providers | 🟡 | Sigma CSV/Excel upload as a source; wired manually. |
+| "In list from another query" | 🔴 | No direct "is‑in another query" operator — re‑model as a join / semi‑join. |
+| Query properties (refreshable / duplicate rows / trim) | 🟡 / n/a | Live/refreshable by nature; distinct toggle; `Trim`; some Webi‑only execution settings safely drop. |
+
+**Out of scope:** Crystal Reports, Xcelsius / Design Studio / Lumira (proprietary / retired). Raw `.wid` files aren't parseable directly — see below.
 
 ## Prerequisites
 
@@ -76,6 +132,8 @@ SKILL.md      agent-facing skill definition (Claude Code / Agent SDK)
 ```
 
 ## Limitations
+
+For report‑layer (Webi → workbook) fidelity — what auto‑converts vs. what's finished by hand vs. the true gaps (`NoFilter`, `Between` in conditional formats, "in‑list from another query") — see [**Conversion coverage**](#conversion-coverage) above. Ingest/universe‑side limits:
 
 - **Universe contexts, join cardinalities, derived‑table SQL** — light in RWS metadata; full fidelity needs a Semantic‑Layer‑SDK XML export (the converter IR is structured to accept that as a later ingest).
 - **Raw `.wid` files** — not parseable directly (proprietary binary). Import them into a BO repository and migrate by document id — see *Webi input: live documents, not `.wid` files* above.
