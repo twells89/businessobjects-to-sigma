@@ -140,6 +140,7 @@ const wb = convertWebiToWorkbook(read('fixtures/sample_webi.json'), {
   dataModelId: 'DM', dataModelElementId: 'VIEW', sourceName: 'Order Fact View', measureMap, schemaVersion: 1,
 });
 check(wb.workbook.schemaVersion === 1, 'webi: schemaVersion === 1');
+check(wb.workbook.kind === 'workbook', 'webi: kind === "workbook" (required by live code-rep)');
 check(wb.workbook.pages.length === 2, `webi: ${wb.workbook.pages.length} pages (2)`);
 check(wb.stats.kpis === 2 && wb.stats.charts === 2 && wb.stats.pivots === 1, `webi: 2 KPIs / 2 charts / 1 pivot (got ${wb.stats.kpis}/${wb.stats.charts}/${wb.stats.pivots})`);
 const allCols = wb.workbook.pages.flatMap(p => p.elements).flatMap(e => e.columns || []);

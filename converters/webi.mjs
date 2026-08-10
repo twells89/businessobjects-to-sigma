@@ -10,7 +10,13 @@
  * The ingest (`normalizeWebiDocument`) is tolerant of the raw Raylight element
  * tree AND of a friendly pre-flattened shape (what a discovery script emits).
  *
- * Output: a Sigma workbook spec object suitable for POST /v2/workbooks/spec.
+ * Output: a Sigma workbook spec object. Locally this still nests elements under
+ * `pages[].elements` for converter/test convenience; `scripts/sigma.mjs`
+ * `postWorkbook` (via `scripts/code_rep.mjs`) flattens + wraps it into the live
+ * wire shape before POST /v2/workbooks/spec:
+ *   { name, folderId, document: { schemaVersion, kind: "workbook",
+ *     pages (metadata only), elements (flat), layout } }
+ * A flat pre-2026-08 body hard-400s — never POST the raw converter object.
  * Each report tab → a page; each block → an element bound (by default) to the
  * Sigma data model produced from the matching universe.
  *
@@ -405,7 +411,17 @@ export function convertWebiToWorkbook(input, options = {}) {
   };
 
   return {
-    workbook: { name: workbookName || doc.name, folderId, schemaVersion, pages },
+    // Nested pages[].elements on purpose — postWorkbook/prepareWorkbookForPost
+    // flattens + wraps (+ synthesizes layout) at the API boundary. See
+    // scripts/code_rep.mjs. `kind` is set here so a caller that wraps by hand
+    // still has the required document.kind without re-deriving it.
+    workbook: {
+      name: workbookName || doc.name,
+      folderId,
+      schemaVersion,
+      kind: 'workbook',
+      pages,
+    },
     dataModelAdditions,
     warnings,
     stats,

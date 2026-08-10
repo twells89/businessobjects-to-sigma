@@ -12,6 +12,8 @@
  *   SIGMA_DATABASE, SIGMA_SCHEMA   optional path overrides
  */
 
+import { prepareWorkbookForPost } from './code_rep.mjs';
+
 const BASE = (process.env.SIGMA_BASE_URL || 'https://aws-api.sigmacomputing.com').replace(/\/$/, '');
 let _token = process.env.SIGMA_API_TOKEN || '';
 
@@ -88,13 +90,27 @@ export async function referenceWorkbookSchemaVersion() {
   const wbId = list.entries?.[0]?.workbookId || list.entries?.[0]?.id;
   if (!wbId) return 1;
   const yaml = await req('GET', `/v2/workbooks/${wbId}/spec`, null, true);
-  const m = yaml.match(/schemaVersion:\s*(\d+)/);
+  // Live GETs nest schemaVersion under `document:` (code-rep wrapper, 2026-08).
+  // Prefer the document-scoped value; fall back to any schemaVersion match.
+  const underDoc = yaml.match(/document:\s*\n(?:[ \t]+.+\n)*?[ \t]+schemaVersion:\s*(\d+)/)
+    || yaml.match(/document:[\s\S]*?schemaVersion:\s*(\d+)/);
+  const m = underDoc || yaml.match(/schemaVersion:\s*(\d+)/);
   return m ? Number(m[1]) : 1;
 }
 
-/** POST a workbook spec → { workbookId }. */
+/**
+ * POST a workbook spec → { workbookId }.
+ *
+ * Always routes through `prepareWorkbookForPost` so callers can keep the
+ * converter's convenient `pages[].elements` shape (and flat probe fixtures)
+ * while the wire body matches the live code-rep contract: outer
+ * `{name, folderId}` + `document: { schemaVersion, kind: "workbook",
+ * pages (metadata), elements (flat), layout }`. A flat pre-2026-08 body
+ * hard-400s. Data-model POSTs are unaffected — do not wrap those.
+ */
 export async function postWorkbook(workbook) {
-  const txt = await req('POST', '/v2/workbooks/spec', workbook, true);
+  const body = prepareWorkbookForPost(workbook);
+  const txt = await req('POST', '/v2/workbooks/spec', body, true);
   const m = txt.match(/workbookId:\s*"?([0-9a-f-]+)/) || txt.match(/"workbookId"\s*:\s*"([0-9a-f-]+)"/);
   return m ? m[1] : null;
 }
