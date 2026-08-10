@@ -111,6 +111,19 @@ node scripts/migrate-webi.mjs <docId> --universe <universeId>
 ```
 Fetches the Webi document, maps report tabs→pages, tables→tables, crosstabs→pivot-tables, charts→bar/line/pie, measure cells→KPIs, filters→controls. Binds every element to the universe's View element and references columns **qualified by the source element name** (`[Order Fact View/Net Revenue]`) so nothing self-references. POSTs the workbook.
 
+> **Workbook code-rep wire shape (required since 2026-08).** `POST /v2/workbooks/spec` (and verify / PUT) no longer accepts a flat `{ name, folderId, schemaVersion, pages:[{elements}] }` body — that hard-400s. The live contract is:
+> ```
+> { name, folderId, document: {
+>     schemaVersion, kind: "workbook",
+>     pages: [/* metadata only — no nested elements */],
+>     elements: [/* flat array of every element */],
+>     layout: "<!-- XML: <Page id>…<Element elementId>… -->"
+> } }
+> ```
+> `document.kind: "workbook"` is required. Every element must be placed in `document.layout` (`<Element>` / `<Container>` tags; not the legacy `<LayoutElement>` / `<GridContainer>` aliases). The data-model surface (`/v2/dataModels/.../spec`) is **unchanged** and stays flat — do not wrap DM payloads.
+>
+> The Webi converter still returns the convenient nested `pages[].elements` shape for local use. **`scripts/sigma.mjs` `postWorkbook` always runs `prepareWorkbookForPost`** (`scripts/code_rep.mjs`) before the HTTP call: it flattens elements, sets `kind`, synthesizes a stacked full-width `layout` when missing, and wraps under `document`. If you POST a workbook by hand (agent path / curl), call `prepareWorkbookForPost` first — or build the wrapped shape yourself. Never POST the raw converter object.
+
 Report **variables** (`/variables`) are translated by `converters/webi-formula.mjs` and **split by kind**: a context-free measure/dimension becomes a reusable **data-model addition** (`dataModelAdditions`) that `migrate-webi.mjs` patches into the bound View element (GET spec → merge → PUT) *before* creating the workbook; a layout/window-dependent one (`RunningSum`/`Previous`/`Rank`/`Percentage`, or an `In`/`ForEach`/`ForAll` context operator) stays a workbook calc column. A DM-placed **measure** variable is referenced in the workbook by its **inline re-aggregated formula** (`Sum([Order Fact View/Net Revenue]) / Sum([Order Fact View/Gross Revenue])`), *not* by the metric name — a data-model metric is not addressable as `[Element/MetricName]` from a workbook (that 400s "Dependency not found"); the metric still lands in the DM for reuse. Review the warnings for `NoFilter` (compute on a separate unfiltered element), `@Prompt`/`@Variable`/`@Select` (model as a control/parameter), and context operators (set the Sigma grouping/partition and verify) — these are surfaced, not silently applied.
 
 **Phase 4 — Verify**
@@ -176,6 +189,8 @@ Set expectations with this before promising a Webi migration, and use it as the 
 
 If you're an agent with the Sigma data-model MCP available, you can skip `converters/bobj.mjs` and call the `convert_bobj_to_sigma` tool directly on the universe JSON from `getUniverse()`, then POST via the Sigma REST skill. The script path is the self-contained equivalent.
 
+For workbooks: convert with `converters/webi.mjs`, then **wrap before POST** — `prepareWorkbookForPost(result.workbook)` from `scripts/code_rep.mjs` (or use `postWorkbook`, which does it for you). Do not POST a flat `{schemaVersion, pages:[{elements}]}` body; see Phase 3.
+
 ## Scope & limits
 
 - **RWS JSON carries no SELECTs / tables** — the REST outline has no relational bindings or data foundation, so columns and calculations can't come from it. The SL-SDK / IDT XML path (`extract-universe-sdk.groovy` → `ingestBobjSdkXml`, auto-detected) supplies them. Same converter core.
@@ -183,5 +198,6 @@ If you're an agent with the Sigma data-model MCP available, you can skip `conver
 - **Crystal Reports** — not covered by RWS (separate, proprietary). Out of scope.
 - **`@`-functions & predefined filters** — emitted as warnings; re-author as Sigma controls/filters.
 - **Status:** the converters are verified end-to-end against Sigma (POST + real-data query). The RWS *discovery* scripts are coded to the documented contract but have **not** been run against a live BO server yet — expect to adjust response-shape parsing on first contact (see comments in `scripts/bo-rws.mjs`).
+- **Workbook POST shape:** since 2026-08 the workbook code-rep requires the `document` wrapper (`kind: "workbook"`, flat `elements`, metadata-only `pages`, `layout`). `postWorkbook` adapts converter output automatically; see Phase 3. Data-model POSTs stay flat.
 
 Run `npm test` for an offline smoke test of both converters on the bundled fixtures.
