@@ -5,8 +5,9 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "test": "node test/smoke.mjs && node test/webi-formula.test.mjs && node test/webi-integration.test.mjs && node test/dm-merge.test.mjs && node test/code_rep.test.mjs",
+    "test": "node test/smoke.mjs && node test/webi-formula.test.mjs && node test/webi-integration.test.mjs && node test/dm-merge.test.mjs && node test/code_rep.test.mjs && node test/preflight.test.mjs && node test/bo-rws.test.mjs",
     "discover": "node scripts/discover.mjs",
+    "capture:webi": "node scripts/capture-webi.mjs",
     "migrate:universe": "node scripts/migrate-universe.mjs",
     "migrate:webi": "node scripts/migrate-webi.mjs"
   },

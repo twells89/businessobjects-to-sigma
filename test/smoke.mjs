@@ -124,10 +124,16 @@ check(srcOf(dirMult.model.pages[0].elements) === 'Order Fact', `direction: per-s
 // ── Input-kind detection + zero-join guard (silent low-fidelity model) ────────
 check(detectBobjInputKind(xml3) === 'sdk-xml', 'input-kind: leading < → sdk-xml');
 const outlineJson = JSON.stringify({ name: 'U', tables: ['A', 'B'], objects: [
-  { name: 'x', type: 'dimension', select: 'A.X' }, { name: 'y', type: 'dimension', select: 'B.Y' } ] });
+  { name: 'x', type: 'dimension' }, { name: 'y', type: 'dimension' } ] });
 check(detectBobjInputKind(outlineJson) === 'json-outline', 'input-kind: joinless JSON → json-outline');
 check(detectBobjInputKind(JSON.stringify({ tables: ['A', 'B'], joins: [{ expression: 'A.K=B.K' }] })) === 'json-with-joins',
   'input-kind: JSON with joins[] → json-with-joins');
+const singleTableJson = JSON.stringify({ universe: { name: 'Single', tables: ['FACT'], classes: [
+  { name: 'Measures', objects: [{ name: 'Revenue', type: 'Measure', select: 'sum(FACT.REVENUE)' }] },
+] } });
+check(detectBobjInputKind(singleTableJson) === 'json-with-foundation', 'input-kind: single-table SDK JSON → json-with-foundation');
+const singleTable = convertBobjToSigma(singleTableJson, { connectionId: 'conn' });
+check(singleTable.model.pages[0].elements.some(e => e.name === 'Fact View'), 'single-table universe gets a bindable View');
 const guarded = convertBobjToSigma(outlineJson, { connectionId: 'conn' });
 check(guarded.stats.relationships === 0, 'guard: multi-table outline → 0 relationships');
 check(guarded.warnings.some(w => /Input format: RWS outline JSON/.test(w)), 'guard: outline input surfaces "Input format" note');
