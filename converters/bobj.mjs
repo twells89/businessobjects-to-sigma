@@ -50,7 +50,21 @@ export function detectBobjInputKind(input) {
     }
     const root = obj?.universe ?? obj ?? {};
     const rawJoins = root.joins || root.dataFoundation?.joins || obj?.joins;
-    return Array.isArray(rawJoins) && rawJoins.length ? 'json-with-joins' : 'json-outline';
+    if (Array.isArray(rawJoins) && rawJoins.length)
+        return 'json-with-joins';
+    const declaredTables = root.tables || root.dataFoundation?.tables || obj?.tables;
+    const hasSelect = (node) => {
+        if (!node || typeof node !== 'object')
+            return false;
+        if (node.select || node.sql || node.definition || node.expression)
+            return true;
+        return Object.values(node).some(value => Array.isArray(value)
+            ? value.some(hasSelect)
+            : (value && typeof value === 'object' ? hasSelect(value) : false));
+    };
+    return Array.isArray(declaredTables) && declaredTables.length && hasSelect(root)
+        ? 'json-with-foundation'
+        : 'json-outline';
 }
 /** Route any accepted input shape to the BobjUniverse IR. */
 export function parseBobjInput(input) {
@@ -281,6 +295,8 @@ export function convertBobjIR(uni, options = {}) {
         warnings.push(`Input format: RWS outline JSON — carries object names/types/folders ONLY, not the data foundation (physical tables, joins) or object SELECTs. Expect 0 relationships and outline-only columns. For a full model (joins + all columns) provide an SL-SDK / IDT XML export instead (scripts/extract-universe-sdk.groovy).`);
     else if (inputKind === 'sdk-xml')
         warnings.push(`Input format: SL-SDK / IDT XML export — carries the data foundation, so joins and physical columns are expected. If relationships still come out 0, check the per-join warnings below.`);
+    else if (inputKind === 'json-with-foundation')
+        warnings.push(`Input format: structured SDK/IDT JSON — physical tables and object SELECTs are present; no joins are expected for this single-table model.`);
     // Target-layer remap (restructured / platinum layer): rewrite the universe's
     // old physical table/column names to the new warehouse names BEFORE conversion,
     // so the output binds to the layer that actually exists. Many old tables may
@@ -734,10 +750,11 @@ function textOf(node) { return node ? (node.text || '').trim() : ''; }
 // ── Derived elements (name-aware variant of buildDerivedElements) ────────────
 function buildBobjDerivedElements(elements) {
     const derived = [];
+    const physicalElements = elements.filter(e => e.source?.kind === 'warehouse-table');
     for (const srcEl of elements) {
-        if (!srcEl.relationships?.length)
-            continue;
         if (srcEl.source?.kind !== 'warehouse-table')
+            continue;
+        if (!srcEl.relationships?.length && physicalElements.length !== 1)
             continue;
         const baseName = srcEl.name || (srcEl.source.path || []).slice(-1)[0] || '';
         const viewCols = [];
@@ -757,12 +774,12 @@ function buildBobjDerivedElements(elements) {
             if (col.hidden)
                 continue;
             const fm = col.formula?.match(/^\[([^\/\]]+)\/([^\]]+)\]$/);
-            if (!fm)
-                continue; // skip calc cols
-            const disp = col.name || fm[2];
+            const disp = col.name || fm?.[2];
+            if (!disp)
+                continue;
             pushView(disp, `[${baseName}/${disp}]`);
         }
-        for (const rel of srcEl.relationships) {
+        for (const rel of (srcEl.relationships || [])) {
             if (!rel.name)
                 continue;
             const tgt = elements.find(e => e.id === rel.targetElementId);

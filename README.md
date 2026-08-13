@@ -114,12 +114,41 @@ set -a; . ./.bo_env; set +a
 
 npm test                                         # offline: converters vs. bundled fixtures
 node scripts/discover.mjs                        # inventory universes + Webi docs → inventory.json
-node scripts/migrate-universe.mjs <universeId>   # universe → data model (records binding)
+node scripts/capture-webi.mjs <docId>             # raw + normalized diagnostic snapshot
+node scripts/migrate-universe.mjs --file universe.xml --source-universe-id <id> --dry-run --out artifacts/universe
+node scripts/migrate-universe.mjs --file universe.xml --source-universe-id <id>   # universe → data model (records binding)
 node scripts/migrate-universe.mjs <universeId> --remap remap.json   # …repointed at a restructured / platinum layer
+node scripts/migrate-webi.mjs <docId> --universe <universeId> --dry-run --out artifacts/webi
+node scripts/migrate-webi.mjs --file snapshots/<host>/<docId>/normalized.json --universe <universeId> --dry-run
 node scripts/migrate-webi.mjs <docId> --universe <universeId>   # Webi doc → workbook
 ```
 
 Migrate a universe **before** the reports that use it — the workbook binds to the data model it produces.
+
+## Safety gates and dry runs
+
+Both migration commands run a structured preflight before any Sigma write. A
+publication is blocked when the source is known to be incomplete or cannot be
+bound safely: outline-only universe JSON, no physical elements/View, a
+multi-table model with no relationships, an incomplete workbook binding, no
+recognized report elements, multiple data providers/universes, or source
+filters whose scope cannot yet be preserved. A blocked `--dry-run` still writes
+the generated spec and `preflight.json`, then exits with status 2; a non-dry run
+stops before creating or changing anything in Sigma.
+
+Use `--fail-on-warning` when every converter warning should also block
+publication. Use `--out <directory>` to preserve `source.json`,
+`conversion.json`, and `preflight.json`. `capture-webi.mjs` follows RWS
+pagination and saves redacted raw endpoint responses so BO-version response
+shape issues can be diagnosed without immediately publishing a workbook.
+These artifacts can still contain customer metadata, object formulas, and SQL;
+`artifacts/` and `snapshots/` are gitignored and must be handled as sensitive.
+
+State keys are qualified by `BO_BASE_URL`, preventing identical universe IDs on
+different BO hosts from sharing a Sigma binding.
+When converting a local SDK/IDT export, pass `--source-universe-id <id>` so the
+saved binding can be verified against the Webi data provider and reused by the
+later `--universe <id>` command.
 
 ## Layout
 

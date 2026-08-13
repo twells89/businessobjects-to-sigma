@@ -63,13 +63,32 @@ node scripts/migrate-universe.mjs --file universe.xml      # convert + POST (no 
 ```
 node scripts/discover.mjs
 ```
-Logs on, enumerates every universe and Webi document (typed RWS lists, with a CMS-query fallback), writes `inventory.json`. Use it to pick what to migrate first (start with the universes that the highest-value reports depend on).
+Logs on, follows server-provided pagination for every universe and Webi document (typed RWS lists, with a CMS-query fallback), verifies advertised totals, and writes `inventory.json` with the source host and page counts. Use it to pick what to migrate first (start with the universes that the highest-value reports depend on).
+
+Before converting a selected report, capture its source responses:
+```
+node scripts/capture-webi.mjs <docId> --out snapshots/<host>/<docId>
+```
+This saves redacted raw and normalized document, report-element, variable,
+filter, input-control, and data-provider responses. Review capture warnings; a
+missing optional endpoint is not silently treated as an empty source feature.
+Snapshots can still contain customer metadata and SQL. Keep them local and
+restricted; `snapshots/` and `artifacts/` are gitignored.
 
 **Phase 2 — Universe → data model** (do this before its reports)
 ```
-node scripts/migrate-universe.mjs <universeId>
+node scripts/migrate-universe.mjs --file universe.xml --source-universe-id <id> --dry-run --out artifacts/universe
+node scripts/migrate-universe.mjs --file universe.xml --source-universe-id <id>
 ```
 Fetches the universe, converts it (tables→elements, dimensions/details→columns with business names, measures→metrics, joins→relationships with FK keys parsed from the join SQL, predefined filters + `@`-functions→warnings), POSTs the data model, and records the binding (data-model id + denormalized **View** element + measure formulas) in `.bo-state.json`.
+
+**The dry run is mandatory before publication.** Review `preflight.json` and
+`conversion.json`. Publication is blocked for outline-only RWS input, no
+physical elements, no bindable View, or a multi-table universe with zero
+relationships. `--fail-on-warning` additionally turns every converter warning
+into a blocker. A blocked dry run still writes diagnostics and exits 2.
+For a local SDK/IDT export, `--source-universe-id` is required operationally so
+the host-qualified state binding can later be checked against the Webi provider.
 
 **Phase 2a — Target-layer remapping** (ALWAYS ask first; skip only if the answer is "no")
 
@@ -107,9 +126,18 @@ The universe references the *old* physical table/column names. If the customer i
 
 **Phase 3 — Webi document → workbook**
 ```
+node scripts/migrate-webi.mjs <docId> --universe <universeId> --dry-run --out artifacts/webi
+node scripts/migrate-webi.mjs --file snapshots/<host>/<docId>/normalized.json --universe <universeId> --dry-run
 node scripts/migrate-webi.mjs <docId> --universe <universeId>
 ```
 Fetches the Webi document, maps report tabs→pages, tables→tables, crosstabs→pivot-tables, charts→bar/line/pie, measure cells→KPIs, filters→controls. Binds every element to the universe's View element and references columns **qualified by the source element name** (`[Order Fact View/Net Revenue]`) so nothing self-references. POSTs the workbook.
+
+The preflight runs before data-model additions or workbook creation. It blocks
+an incomplete universe binding, missing reports/elements, multiple data
+providers, multiple universes, and source filters whose scope is not yet
+preserved. Do not bypass these by deleting capture metadata. Provider-aware
+source binding and scoped filter conversion must be implemented before those
+documents can publish safely.
 
 > **Workbook code-rep wire shape (required since 2026-08).** `POST /v2/workbooks/spec` (and verify / PUT) no longer accepts a flat `{ name, folderId, schemaVersion, pages:[{elements}] }` body — that hard-400s. The live contract is:
 > ```
