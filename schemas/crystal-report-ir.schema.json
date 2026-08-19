@@ -1,0 +1,291 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/twells89/businessobjects-to-sigma/schemas/crystal-report-ir.schema.json",
+  "title": "Crystal Reports migration IR",
+  "description": "Versioned, extractor-neutral representation of a Crystal Reports definition. Unknown SDK properties remain valid under extensions so extraction never has to discard source metadata.",
+  "type": "object",
+  "required": ["irVersion", "source", "report", "page", "sections", "data", "warnings"],
+  "properties": {
+    "irVersion": { "const": "1.0" },
+    "source": {
+      "type": "object",
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": { "enum": ["sap-dotnet-sdk", "sap-java-ras", "rpt-rs-json", "fixture"] },
+        "name": { "type": "string" },
+        "path": { "type": ["string", "null"] },
+        "sha256": { "type": ["string", "null"] },
+        "crystalVersion": { "type": ["string", "null"] },
+        "extractorVersion": { "type": ["string", "null"] },
+        "extractedAt": { "type": ["string", "null"], "format": "date-time" }
+      },
+      "additionalProperties": true
+    },
+    "report": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "title": { "type": ["string", "null"] },
+        "description": { "type": ["string", "null"] },
+        "author": { "type": ["string", "null"] },
+        "recordSelectionFormula": { "type": ["string", "null"] },
+        "groupSelectionFormula": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "page": {
+      "type": "object",
+      "required": ["widthTwips", "heightTwips", "marginsTwips", "orientation"],
+      "properties": {
+        "widthTwips": { "type": "integer", "minimum": 1 },
+        "heightTwips": { "type": "integer", "minimum": 1 },
+        "orientation": { "enum": ["portrait", "landscape", "unknown"] },
+        "marginsTwips": {
+          "type": "object",
+          "required": ["top", "right", "bottom", "left"],
+          "properties": {
+            "top": { "type": "integer", "minimum": 0 },
+            "right": { "type": "integer", "minimum": 0 },
+            "bottom": { "type": "integer", "minimum": 0 },
+            "left": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "paperName": { "type": ["string", "null"] },
+        "printerName": { "type": ["string", "null"] },
+        "dissociateFormattingPageSizeAndPrinterPaperSize": { "type": ["boolean", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "sections": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/section" }
+    },
+    "data": {
+      "type": "object",
+      "required": ["tables", "links", "fields", "formulas", "parameters", "groups", "sorts", "summaries", "runningTotals", "sqlExpressions"],
+      "properties": {
+        "tables": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/table" }
+        },
+        "links": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/link" }
+        },
+        "fields": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/field" }
+        },
+        "formulas": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/formula" }
+        },
+        "parameters": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/parameter" }
+        },
+        "groups": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/group" }
+        },
+        "sorts": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+        "summaries": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+        "runningTotals": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+        "sqlExpressions": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+      },
+      "additionalProperties": true
+    },
+    "subreports": {
+      "type": "array",
+      "items": { "$ref": "#" },
+      "default": []
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "path": { "type": ["string", "null"] },
+          "sourceValue": {}
+        },
+        "additionalProperties": true
+      }
+    },
+    "extensions": { "type": "object", "additionalProperties": true }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "section": {
+      "type": "object",
+      "required": ["id", "name", "kind", "heightTwips", "objects"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "kind": {
+          "enum": [
+            "report-header", "page-header", "group-header", "details",
+            "group-footer", "page-footer", "report-footer", "unknown"
+          ]
+        },
+        "groupIndex": { "type": ["integer", "null"], "minimum": 0 },
+        "heightTwips": { "type": "integer", "minimum": 0 },
+        "widthTwips": { "type": ["integer", "null"], "minimum": 0 },
+        "visible": { "type": "boolean", "default": true },
+        "suppressFormula": { "type": ["string", "null"] },
+        "newPageBefore": { "type": ["boolean", "null"] },
+        "newPageAfter": { "type": ["boolean", "null"] },
+        "keepTogether": { "type": ["boolean", "null"] },
+        "objects": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/reportObject" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "reportObject": {
+      "type": "object",
+      "required": ["id", "name", "kind", "xTwips", "yTwips", "widthTwips", "heightTwips"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "kind": {
+          "enum": [
+            "text", "field", "formula", "summary", "running-total", "picture",
+            "line", "box", "chart", "crosstab", "subreport", "ole", "map", "unknown"
+          ]
+        },
+        "xTwips": { "type": "integer" },
+        "yTwips": { "type": "integer" },
+        "widthTwips": { "type": "integer", "minimum": 0 },
+        "heightTwips": { "type": "integer", "minimum": 0 },
+        "zIndex": { "type": ["integer", "null"] },
+        "text": { "type": ["string", "null"] },
+        "fieldId": { "type": ["string", "null"] },
+        "formulaName": { "type": ["string", "null"] },
+        "summaryName": { "type": ["string", "null"] },
+        "subreportName": { "type": ["string", "null"] },
+        "format": { "$ref": "#/$defs/format" },
+        "conditionFormulas": { "type": "object", "additionalProperties": { "type": "string" } },
+        "image": {
+          "type": ["object", "null"],
+          "properties": {
+            "mimeType": { "type": ["string", "null"] },
+            "dataBase64": { "type": ["string", "null"] },
+            "sourcePath": { "type": ["string", "null"] },
+            "sourceField": { "type": ["string", "null"] }
+          },
+          "additionalProperties": true
+        },
+        "extensions": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": true
+    },
+    "format": {
+      "type": "object",
+      "properties": {
+        "fontFamily": { "type": ["string", "null"] },
+        "fontSizePoints": { "type": ["number", "null"], "minimum": 0 },
+        "bold": { "type": ["boolean", "null"] },
+        "italic": { "type": ["boolean", "null"] },
+        "underline": { "type": ["boolean", "null"] },
+        "foregroundColor": { "type": ["string", "null"] },
+        "backgroundColor": { "type": ["string", "null"] },
+        "horizontalAlign": { "type": ["string", "null"] },
+        "verticalAlign": { "type": ["string", "null"] },
+        "numberFormat": { "type": ["string", "null"] },
+        "dateFormat": { "type": ["string", "null"] },
+        "canGrow": { "type": ["boolean", "null"] },
+        "suppress": { "type": ["boolean", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "table": {
+      "type": "object",
+      "required": ["id", "name", "kind"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "kind": { "enum": ["table", "view", "command", "stored-procedure", "unknown"] },
+        "database": { "type": ["string", "null"] },
+        "schema": { "type": ["string", "null"] },
+        "qualifiedName": { "type": ["string", "null"] },
+        "alias": { "type": ["string", "null"] },
+        "commandSql": { "type": ["string", "null"] },
+        "connection": {
+          "type": "object",
+          "description": "Non-secret logical connection metadata only.",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "link": {
+      "type": "object",
+      "required": ["leftTable", "leftFields", "rightTable", "rightFields"],
+      "properties": {
+        "leftTable": { "type": "string" },
+        "leftFields": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "rightTable": { "type": "string" },
+        "rightFields": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "joinType": { "type": ["string", "null"] },
+        "cardinality": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "field": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "table": { "type": ["string", "null"] },
+        "physicalName": { "type": ["string", "null"] },
+        "dataType": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "formula": {
+      "type": "object",
+      "required": ["name", "text"],
+      "properties": {
+        "name": { "type": "string" },
+        "text": { "type": "string" },
+        "syntax": { "enum": ["crystal", "basic", "unknown"] },
+        "valueType": { "type": ["string", "null"] },
+        "evaluationTime": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "parameter": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "prompt": { "type": ["string", "null"] },
+        "dataType": { "type": ["string", "null"] },
+        "allowMultiple": { "type": ["boolean", "null"] },
+        "allowNull": { "type": ["boolean", "null"] },
+        "optional": { "type": ["boolean", "null"] },
+        "defaultValues": { "type": "array", "items": {} }
+      },
+      "additionalProperties": true
+    },
+    "group": {
+      "type": "object",
+      "required": ["name", "conditionField"],
+      "properties": {
+        "name": { "type": "string" },
+        "conditionField": { "type": "string" },
+        "sortDirection": { "type": ["string", "null"] },
+        "repeatHeader": { "type": ["boolean", "null"] },
+        "keepTogether": { "type": ["boolean", "null"] }
+      },
+      "additionalProperties": true
+    }
+  }
+}

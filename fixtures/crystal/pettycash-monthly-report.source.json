@@ -1,0 +1,46 @@
+{
+  "name": "Petty Cash monthly report",
+  "profile": "pettycash-monthly-report",
+  "license": "MIT",
+  "upstreamRepository": "https://github.com/agailevictor/pettycashapp",
+  "upstreamCommit": "fda6df640c1cbee16c5c22e424f2fe978c182ec7",
+  "report": {
+    "path": "PettyCash/PettyCashApp/user/MonthlyReport.rpt",
+    "sha": "d8612dbeab8a04ece388109d931ee4c97fc3bb36",
+    "sha256": "3bed5d632157809409efdb963009487c19ea282084947314edfafa1956aab085",
+    "size": 65536,
+    "url": "https://raw.githubusercontent.com/agailevictor/pettycashapp/fda6df640c1cbee16c5c22e424f2fe978c182ec7/PettyCash/PettyCashApp/user/MonthlyReport.rpt"
+  },
+  "referencePdf": {
+    "path": "PettyCash/PettyCashApp/pdf/Monthly_Report.pdf",
+    "sha": "44a6c35256401f5d61a10404dd6cf731a407fb78",
+    "sha256": "18bbb4f28af000ba46978f403f652c6376bdf2927d2565ccd336493d3f7b447",
+    "size": 57240,
+    "url": "https://raw.githubusercontent.com/agailevictor/pettycashapp/fda6df640c1cbee16c5c22e424f2fe978c182ec7/PettyCash/PettyCashApp/pdf/Monthly_Report.pdf",
+    "creator": "Crystal Reports",
+    "producer": "Powered By Crystal"
+  },
+  "expectedCensus": {
+    "sections": 5,
+    "objects": 29,
+    "tables": 1,
+    "links": 0,
+    "fields": 17,
+    "formulas": 0,
+    "parameters": 0,
+    "groups": 0,
+    "pictures": 1,
+    "subreports": 0,
+    "warnings": 7
+  },
+  "sigma": {
+    "sourceTable": "PETTYCASH_MONTHLY_REPORT_ROWS",
+    "detailElementId": "pettycash-detail",
+    "artifactPrefix": "pettycash-monthly-report"
+  },
+  "notes": [
+    "The upstream application code loads this exact RPT and exports this exact PDF path.",
+    "The reference PDF identifies Crystal Reports / Powered By Crystal in its metadata.",
+    "The RPT contains no saved rows and the upstream repository contains no database seed. The nine public PDF rows are reconstructed by the E2E seed solely to reproduce this pinned visual oracle."
+  ]
+}

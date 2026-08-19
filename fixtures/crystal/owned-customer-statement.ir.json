@@ -1,0 +1,405 @@
+{
+  "irVersion": "1.0",
+  "source": {
+    "kind": "fixture",
+    "name": "owned-customer-statement.rpt",
+    "path": null,
+    "sha256": null,
+    "crystalVersion": "fixture",
+    "extractorVersion": "fixture",
+    "extractedAt": "2026-08-19T00:00:00Z"
+  },
+  "report": {
+    "name": "Owned Customer Statement",
+    "title": "Statement of Account",
+    "description": "Repository-owned synthetic Crystal IR fixture",
+    "author": "businessobjects-to-sigma",
+    "recordSelectionFormula": "{@Balance} >= {?MinimumBalance}",
+    "groupSelectionFormula": null
+  },
+  "page": {
+    "widthTwips": 11906,
+    "heightTwips": 16838,
+    "orientation": "portrait",
+    "marginsTwips": {
+      "top": 720,
+      "right": 720,
+      "bottom": 720,
+      "left": 720
+    },
+    "paperName": "PaperA4",
+    "printerName": null,
+    "dissociateFormattingPageSizeAndPrinterPaperSize": null
+  },
+  "sections": [
+    {
+      "id": "report-header",
+      "name": "ReportHeaderSection1",
+      "kind": "report-header",
+      "groupIndex": null,
+      "heightTwips": 720,
+      "widthTwips": 10466,
+      "visible": true,
+      "suppressFormula": null,
+      "newPageBefore": false,
+      "newPageAfter": false,
+      "keepTogether": true,
+      "objects": [
+        {
+          "id": "report-title",
+          "name": "ReportTitle",
+          "kind": "formula",
+          "xTwips": 0,
+          "yTwips": 0,
+          "widthTwips": 6000,
+          "heightTwips": 480,
+          "zIndex": 0,
+          "text": null,
+          "fieldId": null,
+          "formulaName": "ReportTitle",
+          "summaryName": null,
+          "subreportName": null,
+          "format": {
+            "fontFamily": "Arial",
+            "fontSizePoints": 18,
+            "bold": true,
+            "italic": false,
+            "underline": false,
+            "foregroundColor": "#1F3A5F",
+            "backgroundColor": null,
+            "horizontalAlign": "LeftAlign",
+            "verticalAlign": "Top",
+            "numberFormat": null,
+            "dateFormat": null,
+            "canGrow": false,
+            "suppress": false
+          },
+          "conditionFormulas": {},
+          "image": null,
+          "extensions": {}
+        }
+      ]
+    },
+    {
+      "id": "page-header",
+      "name": "PageHeaderSection1",
+      "kind": "page-header",
+      "groupIndex": null,
+      "heightTwips": 360,
+      "widthTwips": 10466,
+      "visible": true,
+      "suppressFormula": null,
+      "newPageBefore": false,
+      "newPageAfter": false,
+      "keepTogether": true,
+      "objects": [
+        {
+          "id": "column-rule",
+          "name": "ColumnRule",
+          "kind": "line",
+          "xTwips": 0,
+          "yTwips": 330,
+          "widthTwips": 10466,
+          "heightTwips": 20,
+          "zIndex": 0,
+          "text": null,
+          "fieldId": null,
+          "formulaName": null,
+          "summaryName": null,
+          "subreportName": null,
+          "format": {},
+          "conditionFormulas": {},
+          "image": null,
+          "extensions": {}
+        }
+      ]
+    },
+    {
+      "id": "group-header",
+      "name": "CustomerHeader",
+      "kind": "group-header",
+      "groupIndex": 0,
+      "heightTwips": 720,
+      "widthTwips": 10466,
+      "visible": true,
+      "suppressFormula": null,
+      "newPageBefore": false,
+      "newPageAfter": false,
+      "keepTogether": true,
+      "objects": [
+        {
+          "id": "customer-name",
+          "name": "CustomerName",
+          "kind": "field",
+          "xTwips": 0,
+          "yTwips": 0,
+          "widthTwips": 4000,
+          "heightTwips": 300,
+          "zIndex": 0,
+          "text": null,
+          "fieldId": "customer.name",
+          "formulaName": null,
+          "summaryName": null,
+          "subreportName": null,
+          "format": {},
+          "conditionFormulas": {},
+          "image": null,
+          "extensions": {}
+        }
+      ]
+    },
+    {
+      "id": "details",
+      "name": "DetailSection1",
+      "kind": "details",
+      "groupIndex": null,
+      "heightTwips": 300,
+      "widthTwips": 10466,
+      "visible": true,
+      "suppressFormula": null,
+      "newPageBefore": false,
+      "newPageAfter": false,
+      "keepTogether": false,
+      "objects": [
+        {
+          "id": "invoice-number",
+          "name": "InvoiceNumber",
+          "kind": "formula",
+          "xTwips": 0,
+          "yTwips": 0,
+          "widthTwips": 1600,
+          "heightTwips": 260,
+          "zIndex": 0,
+          "text": null,
+          "fieldId": null,
+          "formulaName": "InvoiceNumber",
+          "summaryName": null,
+          "subreportName": null,
+          "format": {},
+          "conditionFormulas": {},
+          "image": null,
+          "extensions": {}
+        },
+        {
+          "id": "invoice-balance",
+          "name": "Balance",
+          "kind": "formula",
+          "xTwips": 8600,
+          "yTwips": 0,
+          "widthTwips": 1800,
+          "heightTwips": 260,
+          "zIndex": 1,
+          "text": null,
+          "fieldId": null,
+          "formulaName": "Balance",
+          "summaryName": null,
+          "subreportName": null,
+          "format": {
+            "numberFormat": "$,.2f"
+          },
+          "conditionFormulas": {},
+          "image": null,
+          "extensions": {}
+        }
+      ]
+    },
+    {
+      "id": "group-footer",
+      "name": "CustomerFooter",
+      "kind": "group-footer",
+      "groupIndex": 0,
+      "heightTwips": 600,
+      "widthTwips": 10466,
+      "visible": true,
+      "suppressFormula": null,
+      "newPageBefore": false,
+      "newPageAfter": false,
+      "keepTogether": true,
+      "objects": [
+        {
+          "id": "customer-total",
+          "name": "CustomerTotal",
+          "kind": "summary",
+          "xTwips": 8200,
+          "yTwips": 0,
+          "widthTwips": 2200,
+          "heightTwips": 300,
+          "zIndex": 0,
+          "text": null,
+          "fieldId": null,
+          "formulaName": null,
+          "summaryName": "Customer Balance",
+          "subreportName": null,
+          "format": {},
+          "conditionFormulas": {},
+          "image": null,
+          "extensions": {}
+        }
+      ]
+    },
+    {
+      "id": "page-footer",
+      "name": "PageFooterSection1",
+      "kind": "page-footer",
+      "groupIndex": null,
+      "heightTwips": 480,
+      "widthTwips": 10466,
+      "visible": true,
+      "suppressFormula": null,
+      "newPageBefore": false,
+      "newPageAfter": false,
+      "keepTogether": true,
+      "objects": []
+    }
+  ],
+  "data": {
+    "tables": [
+      {
+        "id": "customer",
+        "name": "customer",
+        "kind": "table",
+        "database": "MERIDIAN",
+        "schema": "PUBLIC",
+        "qualifiedName": "MERIDIAN.PUBLIC.CUSTOMER",
+        "alias": "customer",
+        "commandSql": null,
+        "connection": {
+          "kind": "PostgreSQL"
+        }
+      },
+      {
+        "id": "invoice",
+        "name": "invoice",
+        "kind": "table",
+        "database": "MERIDIAN",
+        "schema": "PUBLIC",
+        "qualifiedName": "MERIDIAN.PUBLIC.INVOICE",
+        "alias": "invoice",
+        "commandSql": null,
+        "connection": {
+          "kind": "PostgreSQL"
+        }
+      }
+    ],
+    "links": [
+      {
+        "leftTable": "invoice",
+        "leftFields": ["customer_id"],
+        "rightTable": "customer",
+        "rightFields": ["customer_id"],
+        "joinType": "Inner",
+        "cardinality": "many-to-one"
+      }
+    ],
+    "fields": [
+      {
+        "id": "customer-customer-id",
+        "name": "customer_id",
+        "table": "customer",
+        "physicalName": "customer_id",
+        "dataType": "Number"
+      },
+      {
+        "id": "customer-name",
+        "name": "name",
+        "table": "customer",
+        "physicalName": "name",
+        "dataType": "String"
+      },
+      {
+        "id": "invoice-invoice-id",
+        "name": "invoice_id",
+        "table": "invoice",
+        "physicalName": "invoice_id",
+        "dataType": "Number"
+      },
+      {
+        "id": "invoice-customer-id",
+        "name": "customer_id",
+        "table": "invoice",
+        "physicalName": "customer_id",
+        "dataType": "Number"
+      },
+      {
+        "id": "invoice-amount-gross",
+        "name": "amount_gross",
+        "table": "invoice",
+        "physicalName": "amount_gross",
+        "dataType": "Currency"
+      }
+    ],
+    "formulas": [
+      {
+        "name": "InvoiceNumber",
+        "text": "\"INV-\" & ToText({invoice.invoice_id},\"000000\")",
+        "syntax": "crystal",
+        "valueType": "String",
+        "evaluationTime": "default"
+      },
+      {
+        "name": "PaidAmount",
+        "text": "0",
+        "syntax": "crystal",
+        "valueType": "Currency",
+        "evaluationTime": "default"
+      },
+      {
+        "name": "Balance",
+        "text": "{invoice.amount_gross} - {@PaidAmount}",
+        "syntax": "crystal",
+        "valueType": "Currency",
+        "evaluationTime": "default"
+      },
+      {
+        "name": "AgingBucket",
+        "text": "If {@Balance} <= 0 Then \"Current\" Else \"Past Due\"",
+        "syntax": "crystal",
+        "valueType": "String",
+        "evaluationTime": "default"
+      },
+      {
+        "name": "ReportTitle",
+        "text": "\"STATEMENT OF ACCOUNT\"",
+        "syntax": "crystal",
+        "valueType": "String",
+        "evaluationTime": "default"
+      }
+    ],
+    "parameters": [
+      {
+        "name": "MinimumBalance",
+        "prompt": "Minimum balance",
+        "dataType": "Currency",
+        "allowMultiple": false,
+        "allowNull": false,
+        "optional": false,
+        "defaultValues": [0]
+      }
+    ],
+    "groups": [
+      {
+        "name": "Customer",
+        "conditionField": "customer.customer_id",
+        "sortDirection": "ascending",
+        "repeatHeader": true,
+        "keepTogether": false
+      }
+    ],
+    "sorts": [],
+    "summaries": [
+      {
+        "name": "Customer Balance",
+        "field": "Balance",
+        "operation": "Sum",
+        "groupIndex": 0
+      }
+    ],
+    "runningTotals": [],
+    "sqlExpressions": []
+  },
+  "subreports": [],
+  "warnings": [],
+  "extensions": {
+    "fixture": true
+  }
+}

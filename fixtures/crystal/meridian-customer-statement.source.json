@@ -1,0 +1,53 @@
+{
+  "name": "Meridian customer statement",
+  "license": "MPL-2.0",
+  "upstreamRepository": "https://github.com/MrSrsen/rpt-rs",
+  "upstreamCommit": "3f5beb51dd34d36c4a4326280d25f473b44889d1",
+  "report": {
+    "path": "tests/meridian/reports/sales/01_customer_statement.rpt",
+    "sha": "363651057590751075f63c558aff04d9c40d203e",
+    "size": 1876992,
+    "url": "https://raw.githubusercontent.com/MrSrsen/rpt-rs/3f5beb51dd34d36c4a4326280d25f473b44889d1/tests/meridian/reports/sales/01_customer_statement.rpt"
+  },
+  "baselineJson": {
+    "path": "tests/meridian/baselines/json/reports/sales/01_customer_statement.json",
+    "sha": "4fec19404c61b36e5b219d19c3f8c7d537dee76f",
+    "size": 4219074,
+    "url": "https://raw.githubusercontent.com/MrSrsen/rpt-rs/3f5beb51dd34d36c4a4326280d25f473b44889d1/tests/meridian/baselines/json/reports/sales/01_customer_statement.json"
+  },
+  "seedSql": {
+    "path": "tests/meridian/sql/meridian.sql",
+    "sha": "31bf15b84763b9587ea539647486e2797a9b5dba",
+    "size": 3064033,
+    "url": "https://raw.githubusercontent.com/MrSrsen/rpt-rs/3f5beb51dd34d36c4a4326280d25f473b44889d1/tests/meridian/sql/meridian.sql"
+  },
+  "schemaSql": {
+    "path": "apps/meridian-seed/schema.sql",
+    "sha": "1319198f904481c0548c80999f0b1f1cd4cabe4a",
+    "size": 15097,
+    "url": "https://raw.githubusercontent.com/MrSrsen/rpt-rs/3f5beb51dd34d36c4a4326280d25f473b44889d1/apps/meridian-seed/schema.sql"
+  },
+  "expectedCensus": {
+    "tables": 8,
+    "links": 7,
+    "parameters": 3,
+    "groups": 1,
+    "formulas": 37,
+    "pictures": 2,
+    "subreports": 1,
+    "sectionKinds": [
+      "ReportHeader",
+      "PageHeader",
+      "GroupHeader",
+      "Detail",
+      "GroupFooter",
+      "ReportFooter",
+      "PageFooter"
+    ]
+  },
+  "notes": [
+    "The upstream seed is deterministic synthetic data documented by rpt-rs as fictional and safe to publish.",
+    "The baseline JSON is used as a pinned extraction oracle. The .rpt remains upstream and is downloaded on demand.",
+    "rpt-rs is an experimental reverse-engineered parser. Production extraction uses the official SAP SDK utility under tools/crystal-extractor."
+  ]
+}

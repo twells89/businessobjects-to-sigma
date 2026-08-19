@@ -1,0 +1,161 @@
+{
+  "irVersion": "1.0",
+  "source": {
+    "kind": "fixture",
+    "name": "basic resume template.rpt"
+  },
+  "report": {
+    "name": "Basic Résumé Template"
+  },
+  "page": {
+    "widthTwips": 11899,
+    "heightTwips": 16841,
+    "orientation": "portrait",
+    "marginsTwips": {
+      "top": 360,
+      "right": 360,
+      "bottom": 360,
+      "left": 360
+    }
+  },
+  "sections": [
+    {
+      "id": "report-header",
+      "name": "ReportHeaderSection2",
+      "kind": "report-header",
+      "heightTwips": 705,
+      "objects": []
+    },
+    {
+      "id": "details",
+      "name": "DetailSection1",
+      "kind": "details",
+      "heightTwips": 308,
+      "objects": []
+    },
+    {
+      "id": "footer",
+      "name": "PageFooterSection1",
+      "kind": "page-footer",
+      "heightTwips": 252,
+      "objects": []
+    }
+  ],
+  "data": {
+    "tables": [],
+    "links": [],
+    "fields": [],
+    "formulas": [],
+    "parameters": [],
+    "groups": [],
+    "sorts": [],
+    "summaries": [],
+    "runningTotals": [],
+    "sqlExpressions": []
+  },
+  "subreports": [
+    {
+      "irVersion": "1.0",
+      "source": { "kind": "fixture", "name": "Academics" },
+      "report": { "name": "Academics" },
+      "page": {
+        "widthTwips": 5580,
+        "heightTwips": 308,
+        "orientation": "portrait",
+        "marginsTwips": { "top": 0, "right": 0, "bottom": 0, "left": 0 }
+      },
+      "sections": [
+        {
+          "id": "academics-details",
+          "name": "Details",
+          "kind": "details",
+          "heightTwips": 240,
+          "objects": []
+        }
+      ],
+      "data": {
+        "tables": [],
+        "links": [],
+        "fields": [],
+        "formulas": [],
+        "parameters": [],
+        "groups": [],
+        "sorts": [],
+        "summaries": [],
+        "runningTotals": [],
+        "sqlExpressions": []
+      },
+      "subreports": [],
+      "warnings": []
+    },
+    {
+      "irVersion": "1.0",
+      "source": { "kind": "fixture", "name": "Certifications" },
+      "report": { "name": "Certifications" },
+      "page": {
+        "widthTwips": 5580,
+        "heightTwips": 308,
+        "orientation": "portrait",
+        "marginsTwips": { "top": 0, "right": 0, "bottom": 0, "left": 0 }
+      },
+      "sections": [
+        {
+          "id": "certifications-details",
+          "name": "Details",
+          "kind": "details",
+          "heightTwips": 221,
+          "objects": []
+        }
+      ],
+      "data": {
+        "tables": [],
+        "links": [],
+        "fields": [],
+        "formulas": [],
+        "parameters": [],
+        "groups": [],
+        "sorts": [],
+        "summaries": [],
+        "runningTotals": [],
+        "sqlExpressions": []
+      },
+      "subreports": [],
+      "warnings": []
+    },
+    {
+      "irVersion": "1.0",
+      "source": { "kind": "fixture", "name": "Projects" },
+      "report": { "name": "Projects" },
+      "page": {
+        "widthTwips": 11340,
+        "heightTwips": 308,
+        "orientation": "portrait",
+        "marginsTwips": { "top": 0, "right": 0, "bottom": 0, "left": 0 }
+      },
+      "sections": [
+        {
+          "id": "projects-details",
+          "name": "Details",
+          "kind": "details",
+          "heightTwips": 221,
+          "objects": []
+        }
+      ],
+      "data": {
+        "tables": [],
+        "links": [],
+        "fields": [],
+        "formulas": [],
+        "parameters": [],
+        "groups": [],
+        "sorts": [],
+        "summaries": [],
+        "runningTotals": [],
+        "sqlExpressions": []
+      },
+      "subreports": [],
+      "warnings": []
+    }
+  ],
+  "warnings": []
+}

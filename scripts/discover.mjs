@@ -1,13 +1,20 @@
 #!/usr/bin/env node
 /**
- * Inventory a BusinessObjects repository: every universe and Web Intelligence
- * document the logon user can see, written to inventory.json + printed.
+ * Inventory a BusinessObjects repository: universes, Web Intelligence
+ * documents, and Crystal Report definitions the logon user can see.
  *
  * Usage:  node scripts/discover.mjs
  * Requires .bo_env (BO_BASE_URL / BO_USER / BO_PASSWORD / BO_AUTH).
  */
 import { writeFileSync } from 'node:fs';
-import { logon, listUniversesDetailed, listWebiDocumentsDetailed, cmsQuery, BO_BASE } from './bo-rws.mjs';
+import {
+  logon,
+  listUniversesDetailed,
+  listWebiDocumentsDetailed,
+  listCrystalReports,
+  cmsQuery,
+  BO_BASE,
+} from './bo-rws.mjs';
 
 const name = o => o.name || o.cuid || o.id;
 
@@ -22,6 +29,8 @@ async function main() {
   let webi = [];
   let webiPages = 0;
   try { const result = await listWebiDocumentsDetailed(); webi = result.items; webiPages = result.pages; } catch (e) { console.warn('webi list:', e.message); }
+  let crystal = [];
+  try { crystal = await listCrystalReports(); } catch (e) { console.warn('Crystal report list:', e.message); }
 
   if (!universes.length || !webi.length) {
     try {
@@ -35,6 +44,8 @@ async function main() {
   for (const u of universes) console.log(`  [${u.id}] ${name(u)}`);
   console.log(`\nWeb Intelligence documents (${webi.length}) → workbooks:`);
   for (const d of webi) console.log(`  [${d.id}] ${name(d)}`);
+  console.log(`\nCrystal Report definitions (${crystal.length}) → Sigma reports:`);
+  for (const report of crystal) console.log(`  [${report.id}] ${name(report)}${report.cuid ? ` (${report.cuid})` : ''}`);
 
   const inventory = {
     generatedAt: new Date().toISOString(),
@@ -42,10 +53,18 @@ async function main() {
     pagination: { universePages, webiPages },
     universes: universes.map(u => ({ id: u.id, name: name(u) })),
     webiDocuments: webi.map(d => ({ id: d.id, name: name(d) })),
+    crystalReports: crystal.map(report => ({
+      id: report.id,
+      cuid: report.cuid,
+      name: name(report),
+      parentId: report.parentId,
+      instance: report.instance,
+      sourceType: 'cms-ras',
+    })),
   };
   writeFileSync('inventory.json', JSON.stringify(inventory, null, 2));
   console.log('\nWrote inventory.json');
-  console.log('Next: node scripts/migrate-universe.mjs <universeId>  then  node scripts/migrate-webi.mjs <docId> --universe <universeId>');
+  console.log('Next: migrate a universe + Webi document, or extract a Crystal id with scripts/extract-crystal-cms.groovy.');
 }
 
 main().catch(e => { console.error('discover failed:', e.message); process.exit(1); });

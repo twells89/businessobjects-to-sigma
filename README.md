@@ -1,15 +1,27 @@
 # BusinessObjects → Sigma
 
-Migrate **SAP BusinessObjects** to **Sigma Computing** — both layers, pulled straight from the BI RESTful Web Service (RWS) on an on-prem BO 4.x server:
+Migrate **SAP BusinessObjects** to **Sigma Computing** — semantic models,
+interactive Webi documents, and fixed-layout Crystal Reports:
 
 | BusinessObjects | → | Sigma |
 |---|---|---|
 | **Universe** (semantic layer) | → | **Data model** |
 | **Web Intelligence** document | → | **Workbook** |
+| **Crystal Report** (`.rpt` / CMS definition) | → | **Pixel-perfect report** |
 
-No Java SDK, no Client Tools, no manual exports — one logon token unlocks the universes (Semantic Layer API), the Webi documents (Raylight API), and the full repository inventory (CMS query).
+Universe/Webi migration uses one RWS logon (Semantic Layer + Raylight + CMS
+query). Crystal report definitions are a separate SAP surface: use the
+official Crystal .NET SDK for loose `.rpt` files or BI Platform Java SDK/RAS
+for CMS-managed reports. A pinned `rpt-rs` path exists for Linux smoke tests
+and the public Meridian proof, but is not the production extraction contract.
 
-> **Status.** The converters are verified end‑to‑end against the live Sigma API (spec POST + a query that returns real warehouse data, zero error‑typed columns). The RWS **discovery scripts** are written to the documented RWS contract but have **not yet been run against a live BO server** — response shapes vary across BI 4.1/4.2/4.3 and the parsers will likely need a small adjustment on first contact (they're defensive and commented for it). PRs from a real run welcome.
+> **Status.** Universe/Webi converters are verified end-to-end against Sigma.
+> Crystal extraction, normalization, source/formula translation, Snowflake
+> seeding, report code representation, and the full live E2E gate are
+> implemented and offline-tested. The first persistent Snowflake→Sigma report
+> run still requires a Cloud run with working Snowflake variables plus
+> `SIGMA_FOLDER_ID`/`SIGMA_CONNECTION_ID`. RWS and CMS/RAS response/getter shapes
+> vary by BO service pack; validate a representative report before batch use.
 
 ## How it maps
 
@@ -31,6 +43,24 @@ No Java SDK, no Client Tools, no manual exports — one logon token unlocks the 
 - every element binds to the universe's View element; column refs are qualified by the source element name (`[Order Fact View/Net Revenue]`) so nothing self‑references
 - untranslatable pieces (`NoFilter`, `@`‑functions, gradient/border/image alerters, `Between`) are **surfaced as warnings**, never silently dropped
 
+**Crystal Report → Sigma report** (`converters/crystal.mjs`)
+- loose `.rpt` → neutral Crystal IR through `tools/crystal-extractor` (SAP
+  Crystal Reports for Visual Studio x64 SDK)
+- CMS definition → the same IR through `scripts/extract-crystal-cms.groovy`
+  (BI Platform Java SDK/RAS; scheduled instances excluded)
+- Linux smoke path → the same IR through pinned `rpt-rs` JSON
+- page size/margins + twip geometry → report `document.config` and absolute
+  pixel `<Page>`/`<Panel>` layout
+- page headers/footers → repeating Sigma report panels
+- detail band → ungrouped report table by default; optional customer-summary
+  mode adds grouping (Sigma grouping aggregates rows); report total → KPI
+- direct tables/links → existing universe/data-model converter when useful;
+  the Meridian proof uses a Snowflake wide view and live-proven report
+  `warehouse-table` source
+- Crystal formulas → Sigma formulas where verified; parameters, multi-pass
+  evaluation, images/subreports and unsupported objects remain explicit in a
+  machine-readable degradation ledger
+
 ### Webi input: live documents, not `.wid` files
 
 The Webi converter ingests the **Raylight document JSON** pulled live from the BO server — `GET /biprws/raylight/v1/documents/{id}` (and `…/reports/{rid}/elements`) — addressed by **document id**, *not* a `.wid` file on disk.
@@ -46,6 +76,41 @@ If all you have is `.wid` files, get them onto a reachable CMS first, then migra
 That's the only path that yields the structured model the converter needs. (The converter IR is tolerant enough that an exported structured representation could be wired as an alternate ingest later — but the `.wid` binary itself doesn't give you one.)
 
 This converter mirrors the `convert_bobj_to_sigma` tool in [`sigma-data-model-mcp`](https://github.com/twells89/sigma-data-model-mcp); `converters/bobj.mjs` + `helpers.mjs` are a faithful standalone port so this repo runs without the MCP server.
+
+### Crystal input: official SDK first, rpt-rs for the public proof
+
+SAP does not publish a stable `.rpt` binary specification. Production
+extraction therefore opens the report with the customer's licensed SDK/runtime:
+
+```powershell
+$env:CRYSTAL_SDK_DIR = 'C:\path\to\matching\x64\CrystalDecisions assemblies'
+dotnet build tools\crystal-extractor\CrystalExtractor.csproj -c Release
+tools\crystal-extractor\bin\Release\net48\crystal-extractor.exe report.rpt `
+  --out report.crystal-ir.json --pdf report.crystal.pdf
+```
+
+For CMS content:
+
+```bash
+groovy -cp "$BO_SDK_LIB/*" scripts/extract-crystal-cms.groovy \
+  --cms cms.example.com:6400 --user "$BO_USER" --password "$BO_PASSWORD" \
+  --auth secEnterprise --id 12345 --out-dir artifacts/crystal/cms
+```
+
+The cross-platform smoke path accepts `rpt-rs` v0.4.0:
+
+```bash
+RPT_RS_BIN=/path/to/rpt node scripts/extract-crystal-rpt-rs.mjs report.rpt \
+  --out report.crystal-ir.json
+```
+
+`rpt-rs` is MPL-2.0, independent of SAP, reverse-engineered, and experimental.
+It lets CI test extraction of the pinned Meridian sample; it is not a claim
+that direct binary parsing is SAP-supported.
+
+Every path emits [`schemas/crystal-report-ir.schema.json`](schemas/crystal-report-ir.schema.json).
+The IR preserves raw formulas, sections, page/printer settings, source topology,
+parameters, subreports, object geometry, warnings, and extractor provenance.
 
 ## Conversion coverage
 
@@ -97,14 +162,46 @@ This is an **agent‑led** migration: the converter produces a faithful first dr
 | "In list from another query" | 🟡 | Compiles to a semi‑join (`WHERE col IN (SELECT …)`) — exactly what BObj emits — and runs verbatim in a Sigma **Custom SQL** element (or as a join). The only gap is *no‑code*: no "is‑in another element" filter / formula‑level `IsIn` against another element. Same connection; cross‑connection → blend. |
 | Query properties (refreshable / duplicate rows / trim) | 🟡 / n/a | Live/refreshable by nature; distinct toggle; `Trim`; some Webi‑only execution settings safely drop. |
 
-**Out of scope:** Crystal Reports, Xcelsius / Design Studio / Lumira (proprietary / retired). Raw `.wid` files aren't parseable directly — see below.
+### Crystal compatibility profile
+
+The first profile is the pinned MPL-2.0 Meridian customer statement:
+
+| Crystal construct | Status | Sigma result |
+|---|---|---|
+| A4 page, margins, portrait/landscape | 🟢 | `document.config` + 96-DPI twip conversion |
+| Page header/footer | 🟢 | repeating report header/footer panels |
+| Detail fields | 🟢 | warehouse-backed report table |
+| Customer group + total | 🟡 | default preserves invoice detail; optional `--group-customers` emits an aggregated customer summary |
+| Report grand total | 🟢 | KPI over live Snowflake view |
+| Common arithmetic, `IIf`, nested `If`, null/date/string functions | 🟢/🟡 | translated with per-formula warnings |
+| Parameters / record selection | 🟡 | preserved; first proof uses warehouse defaults rather than unverified synced controls |
+| Lines/boxes | 🟡 | normalized into Sigma page/table styling |
+| Embedded/dynamic pictures | 🟡 | ledger entry until a portable URL/upload handle is available |
+| Linked subreport | 🟡 | recursively extracted; first profile records manual/static fallback |
+| `WhilePrintingRecords`, shared/global variables, UFLs | 🔴 | preserved source + explicit degradation |
+| Advanced crosstabs/charts, maps, OLE | 🔴/🟡 | targeted Sigma support check or static fallback |
+
+Do not call a report pixel-perfect solely because `/verify` returned 200.
+Require GET readback, representative element queries, Sigma PDF export, and a
+visual comparison with the Crystal SDK PDF oracle.
+
+**Still out of scope:** Xcelsius / Design Studio / Lumira. Raw `.wid` files
+aren't parseable directly — see above.
 
 ## Prerequisites
 
 - **Node 18+**.
 - **Network access to the BO server.** RWS runs *on* the on‑prem box (default `https://<host>:6405/biprws`); run this where it's reachable (customer machine / VPN).
 - **RWS enabled** (ships on by default in BI 4.x) and a logon user with view rights on the content.
-- **Sigma**: an API token (or client id/secret), a target folder, and a warehouse connection pointing at the same database the universe's tables live on.
+- **Crystal extraction**: Windows x64 + matching Crystal Reports for Visual
+  Studio SDK for loose reports, or BI Platform Java SDK/RAS for CMS reports.
+  `rpt-rs` is optional for Linux smoke tests.
+- **Sigma**: an API token (or client id/secret), a target folder, a Snowflake
+  connection, and report create/edit/export permission.
+- **Snowflake demo seed**: Python 3 plus
+  `pip install -r requirements-crystal.txt`; key-pair variables listed in
+  `.bo_env.example`. Use an isolated database/schema and set
+  `CRYSTAL_SIGMA_ROLE` when the Sigma connection needs an explicit read grant.
 
 ## Quick start
 
@@ -121,7 +218,35 @@ node scripts/migrate-universe.mjs <universeId> --remap remap.json   # …repoint
 node scripts/migrate-webi.mjs <docId> --universe <universeId> --dry-run --out artifacts/webi
 node scripts/migrate-webi.mjs --file snapshots/<host>/<docId>/normalized.json --universe <universeId> --dry-run
 node scripts/migrate-webi.mjs <docId> --universe <universeId>   # Webi doc → workbook
+
+# Public Crystal proof
+python3 scripts/seed-crystal-snowflake.py             # isolated synthetic data + wide view
+RPT_RS_BIN=/path/to/rpt node scripts/extract-crystal-rpt-rs.mjs report.rpt --out report.ir.json
+node scripts/migrate-crystal.mjs --ir report.ir.json # offline + Sigma /verify, no create
+node scripts/migrate-crystal.mjs --ir report.ir.json --create --pdf statement.pdf
+
+# Crystal source/PDF visual oracle (MIT-licensed PettyCash sample)
+npm run e2e:crystal:pettycash                    # seed + verify, no create
+PETTYCASH_E2E_CREATE=true npm run e2e:crystal:pettycash
+
+# Crystal source/PDF/XML oracle with three subreports (MIT XML Résumé)
+npm run e2e:crystal:xmlresume
+XMLRESUME_E2E_CREATE=true npm run e2e:crystal:xmlresume
 ```
+
+The PettyCash gate downloads a pinned `.rpt` and the PDF exported from that
+exact template by Crystal Reports, validates both blob hashes, reconstructs
+the PDF's nine public rows in Snowflake, and writes the Crystal and Sigma PDFs
+side by side under `artifacts/crystal/pettycash-e2e/`. Sigma report code-rep
+supports horizontal dividers but does not currently expose vertical divider
+orientation or table cell-spacing styles; those differences are recorded in
+the degradation ledger rather than silently claimed as pixel-identical.
+
+The XML Résumé gate adds deterministic XML seeding and three recursively
+extracted subreports flattened into independently queried Sigma data elements.
+See [the Crystal skill update report](docs/crystal-skill-update-report.md) for
+the resulting evidence matrix, live limitations, and proposed `SKILL.md`
+changes.
 
 Migrate a universe **before** the reports that use it — the workbook binds to the data model it produces.
 
@@ -153,10 +278,12 @@ later `--universe <id>` command.
 ## Layout
 
 ```
-converters/   bobj.mjs (universe→DM)  ·  webi.mjs (Webi→workbook)
+converters/   bobj.mjs (universe→DM) · webi.mjs (Webi→workbook) · crystal*.mjs (Crystal→report)
 helpers.mjs   Sigma id/naming/format/CASE utilities (ported from the MCP)
-scripts/      bo-rws.mjs (RWS client) · sigma.mjs (Sigma REST) · discover / migrate-universe / migrate-webi
-fixtures/     efashion_universe.json · sample_webi.json  (used by npm test)
+scripts/      BO/RAS extraction · Snowflake seed · Sigma workbook/report lifecycles · migration CLIs
+fixtures/     eFashion/Webi fixtures · owned Crystal IR · pinned Meridian source manifest
+schemas/      Crystal migration IR
+tools/        Windows SAP Crystal SDK extractor
 SKILL.md      agent-facing skill definition (Claude Code / Agent SDK)
 ```
 
@@ -166,7 +293,10 @@ For report‑layer (Webi → workbook) fidelity — what auto‑converts vs. wha
 
 - **Universe contexts, join cardinalities, derived‑table SQL** — light in RWS metadata; full fidelity needs a Semantic‑Layer‑SDK XML export (the converter IR is structured to accept that as a later ingest).
 - **Raw `.wid` files** — not parseable directly (proprietary binary). Import them into a BO repository and migrate by document id — see *Webi input: live documents, not `.wid` files* above.
-- **Crystal Reports** — not covered by RWS; out of scope.
+- **Crystal Reports** — report definitions are not exposed by Raylight. Use the
+  SDK/RAS extraction paths. The first profile intentionally records images,
+  subreports, parameters and multi-pass formulas as degradations rather than
+  pretending they are complete.
 - **`@`‑functions / predefined filters** — surfaced as warnings; re‑author as Sigma controls/filters.
 
 ## License

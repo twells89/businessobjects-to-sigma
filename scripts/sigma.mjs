@@ -43,6 +43,11 @@ async function req(method, path, body, asText = false) {
   try { return JSON.parse(txt); } catch { return txt; }
 }
 
+// Shared by the report-specific lifecycle helper. Keep the low-level request
+// in one place so auth/error handling stays identical across DMs, workbooks,
+// and pixel-perfect reports.
+export { req as sigmaRequest };
+
 /** POST a data model spec → { dataModelId }. */
 export async function postDataModel(model, folderId = process.env.SIGMA_FOLDER_ID) {
   if (!folderId) throw new Error('Set SIGMA_FOLDER_ID');
@@ -117,5 +122,10 @@ export async function postWorkbook(workbook) {
 
 /** DELETE any Sigma file (data model or workbook) by id. */
 export async function deleteFile(id) { return req('DELETE', `/v2/files/${id}`, null, true); }
+
+/** Refresh warehouse metadata for a connection path (empty path = connection root). */
+export async function syncConnectionPath(connectionId, path = []) {
+  return req('POST', `/v2/connections/${connectionId}/sync`, { path });
+}
 
 export const SIGMA_BASE = BASE;

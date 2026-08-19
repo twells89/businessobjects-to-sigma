@@ -339,4 +339,25 @@ export async function cmsQuery(query) {
   return asArray(j.entries?.entry ?? j.entries ?? j.results);
 }
 
+/**
+ * Crystal Reports are not exposed by Raylight. Inventory definitions through
+ * CMS query and explicitly exclude scheduled instances (`SI_INSTANCE = 0`).
+ * Opening/extracting the report definition itself requires the BI Platform
+ * Java SDK/RAS path in scripts/extract-crystal-cms.groovy.
+ */
+export async function listCrystalReports() {
+  const rows = await cmsQuery(
+    "SELECT SI_ID, SI_CUID, SI_NAME, SI_KIND, SI_PARENTID, SI_INSTANCE " +
+    "FROM CI_INFOOBJECTS WHERE SI_KIND = 'CrystalReport' AND SI_INSTANCE = 0",
+  );
+  return rows.map(row => ({
+    id: row.SI_ID ?? row.si_id ?? row.id,
+    cuid: row.SI_CUID ?? row.si_cuid ?? row.cuid,
+    name: row.SI_NAME ?? row.si_name ?? row.name,
+    kind: row.SI_KIND ?? row.si_kind ?? row.kind ?? 'CrystalReport',
+    parentId: row.SI_PARENTID ?? row.si_parentid ?? row.parentId,
+    instance: row.SI_INSTANCE ?? row.si_instance ?? row.instance ?? 0,
+  }));
+}
+
 export const BO_BASE = BASE;
