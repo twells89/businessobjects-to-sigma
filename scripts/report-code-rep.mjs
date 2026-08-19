@@ -344,6 +344,8 @@ function normalizeReferencePart(value) {
 function normalizeMarkdown(value) {
   return String(value)
     .replace(/\*\*(<span\b[^>]*>)([\s\S]*?)(<\/span>)\*\*/gi, '$1**$2**$3')
+    .replace(/\*\*_([^_\n]+)_\*\*/g, '***$1***')
+    .replace(/(^|\s)_([^_\n]+)_/g, '$1*$2*')
     .replace(/ {2,}\n|\\\n/g, '\n')
     .replace(/\n{2,}/g, '\n');
 }

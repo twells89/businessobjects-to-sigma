@@ -88,7 +88,7 @@ const submittedVariant = {
     }, {
       id: 'text',
       kind: 'text',
-      body: '**<span style="color: red">Heading</span>**  \nDetail',
+      body: '**<span style="color: red">Heading</span>**  \nDetail\n**_Total_**\n### _Title_',
     }],
   },
 };
@@ -98,7 +98,7 @@ const readbackVariant = {
     elements: [{
       id: 'text',
       kind: 'text',
-      body: '<span style="color: red">**Heading**</span>\\\nDetail',
+      body: '<span style="color: red">**Heading**</span>\\\nDetail\n***Total***\n### *Title*',
     }, {
       id: 'table',
       kind: 'table',
