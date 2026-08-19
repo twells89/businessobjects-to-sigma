@@ -23,6 +23,7 @@ const result = convertCrystalToReport(fixture, {
   schema: 'PUBLIC',
   sourceTable: 'CUSTOMER_STATEMENT_ROWS',
   reportName: 'Owned Crystal Statement',
+  profile: 'meridian-customer-statement',
 });
 const report = result.report;
 const offline = validateReportSpec(report);
