@@ -72,6 +72,10 @@ export async function getReportInventory(reportId) {
   return { pages, elements, controls };
 }
 
+export async function queryReportElement(reportId, elementId) {
+  return sigmaRequest('GET', `/v2/reports/${reportId}/elements/${elementId}/query`);
+}
+
 export async function assertReportReadback(reportId, submitted, normalize) {
   const readback = await getReportSpec(reportId);
   const expected = normalize(submitted);

@@ -4,3 +4,6 @@ node_modules/
 inventory.json
 *.log
 .DS_Store
+artifacts/
+*.rpt
+*.crystal-ir.json

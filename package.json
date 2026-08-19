@@ -1,14 +1,22 @@
 {
   "name": "businessobjects-to-sigma",
   "version": "0.1.0",
-  "description": "Migrate SAP BusinessObjects universes and Web Intelligence documents to Sigma Computing data models and workbooks.",
+  "description": "Migrate SAP BusinessObjects universes, Web Intelligence documents, and Crystal Reports to Sigma data models, workbooks, and pixel-perfect reports.",
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "test": "node test/smoke.mjs && node test/webi-formula.test.mjs && node test/webi-integration.test.mjs && node test/dm-merge.test.mjs && node test/code_rep.test.mjs",
+    "test": "node test/smoke.mjs && node test/webi-formula.test.mjs && node test/webi-integration.test.mjs && node test/dm-merge.test.mjs && node test/code_rep.test.mjs && node test/crystal-extraction.test.mjs && node test/crystal-formula.test.mjs && node test/crystal-source.test.mjs && node test/report-code-rep.test.mjs && node test/crystal-integration.test.mjs",
     "discover": "node scripts/discover.mjs",
     "migrate:universe": "node scripts/migrate-universe.mjs",
-    "migrate:webi": "node scripts/migrate-webi.mjs"
+    "migrate:webi": "node scripts/migrate-webi.mjs",
+    "migrate:crystal": "node scripts/migrate-crystal.mjs",
+    "extract:crystal:rpt-rs": "node scripts/extract-crystal-rpt-rs.mjs",
+    "seed:crystal": "python3 scripts/seed-crystal-snowflake.py"
   },
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0"
+  }
 }
