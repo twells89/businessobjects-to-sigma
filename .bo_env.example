@@ -42,6 +42,8 @@ SNOWFLAKE_ROLE=
 # Isolated destination created by scripts/seed-crystal-snowflake.py.
 CRYSTAL_SNOWFLAKE_DATABASE=CRYSTAL_MIGRATION_DEMO
 CRYSTAL_SNOWFLAKE_SCHEMA=PUBLIC
+# Optional read-only consumer role used by the Sigma connection.
+CRYSTAL_SIGMA_ROLE=SIGMA_ROLE
 
 # Persistent report creation has no API cleanup. The E2E refuses to create
 # unless this is explicitly true and SIGMA_FOLDER_ID is approved.

@@ -297,6 +297,11 @@ def main() -> int:
         "--schema",
         default=os.environ.get("CRYSTAL_SNOWFLAKE_SCHEMA", "PUBLIC"),
     )
+    parser.add_argument(
+        "--consumer-role",
+        default=os.environ.get("CRYSTAL_SIGMA_ROLE"),
+        help="Optional Snowflake role that Sigma uses to read the seeded view",
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -338,6 +343,20 @@ def main() -> int:
                 cursor.execute(statement)
             for view in VIEWS:
                 cursor.execute(view)
+            if args.consumer_role:
+                cursor.execute(
+                    f'GRANT USAGE ON DATABASE "{args.database}" '
+                    f'TO ROLE "{args.consumer_role}"'
+                )
+                cursor.execute(
+                    f'GRANT USAGE ON SCHEMA "{args.database}"."{args.schema}" '
+                    f'TO ROLE "{args.consumer_role}"'
+                )
+                cursor.execute(
+                    f'GRANT SELECT ON VIEW '
+                    f'"{args.database}"."{args.schema}"."CUSTOMER_STATEMENT_ROWS" '
+                    f'TO ROLE "{args.consumer_role}"'
+                )
 
             cursor.execute(
                 "SELECT COUNT(*) AS row_count, COUNT(DISTINCT customer_id) AS customers, "

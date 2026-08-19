@@ -200,7 +200,8 @@ aren't parseable directly — see above.
   connection, and report create/edit/export permission.
 - **Snowflake demo seed**: Python 3 plus
   `pip install -r requirements-crystal.txt`; key-pair variables listed in
-  `.bo_env.example`. Use an isolated database/schema.
+  `.bo_env.example`. Use an isolated database/schema and set
+  `CRYSTAL_SIGMA_ROLE` when the Sigma connection needs an explicit read grant.
 
 ## Quick start
 
