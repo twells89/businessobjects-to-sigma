@@ -118,9 +118,9 @@ INSERT INTO {TABLE} (
   id, entry_date, transaction_type, receipt_no, item_name, qty, amount,
   opening_date, frozen_date, opened_by, opening_balance, withdraw_total,
   deposit_total, closing_balance, month_name, report_year
-) SELECT %s, TO_DATE(%s), %s, %s, %s, %s, %s, TO_DATE('2016-06-01'),
+) VALUES (%s, TO_DATE(%s), %s, %s, %s, %s, %s, TO_DATE('2016-06-01'),
   TO_DATE('2016-07-01'), 'Smijith Kumaran', 4913.67, 2286.00, 0.00,
-  2627.67, 'June', 2016
+  2627.67, 'June', 2016)
 """,
                 ROWS,
             )
