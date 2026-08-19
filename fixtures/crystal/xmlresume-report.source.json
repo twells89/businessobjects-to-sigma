@@ -1,0 +1,68 @@
+{
+  "name": "XML Résumé Crystal report",
+  "profile": "xmlresume-report",
+  "license": "MIT",
+  "upstreamRepository": "https://github.com/craibuc/crystal-xmlresume",
+  "upstreamCommit": "fda94e8ef9c71302b7076aecb6d2f9a11bf92b3d",
+  "report": {
+    "path": "basic resume template.rpt",
+    "sha": "68667951c6e1ea1487c68b1f76bc15e500fbf7c1",
+    "sha256": "2d57c2ee598a071c86c78e7e110ca8a30c1ff49c8eb41d56f719f4d0942c9961",
+    "size": 79872,
+    "url": "https://raw.githubusercontent.com/craibuc/crystal-xmlresume/fda94e8ef9c71302b7076aecb6d2f9a11bf92b3d/basic%20resume%20template.rpt"
+  },
+  "referencePdf": {
+    "path": "basic resume template.pdf",
+    "sha": "98b2343f9233aa90e3d2120f684f729e90f49525",
+    "sha256": "7df2508f627240662bb28b7127327eed1bfbc16ca1a78ad23ab880dd3afd17ae",
+    "size": 76465,
+    "url": "https://raw.githubusercontent.com/craibuc/crystal-xmlresume/fda94e8ef9c71302b7076aecb6d2f9a11bf92b3d/basic%20resume%20template.pdf",
+    "title": "Basic Résumé Template",
+    "creator": "Crystal Reports",
+    "producer": "Powered By Crystal"
+  },
+  "referenceXml": {
+    "path": "resume.xml",
+    "sha": "969c708f21452a917f1b366657f3812b7831449e",
+    "sha256": "dbcbe327324d07a4ac5778763103786138b58dc2d76c0f54a9472da859215de0",
+    "size": 5395,
+    "url": "https://raw.githubusercontent.com/craibuc/crystal-xmlresume/fda94e8ef9c71302b7076aecb6d2f9a11bf92b3d/resume.xml"
+  },
+  "expectedCensus": {
+    "sections": 12,
+    "objects": 19,
+    "tables": 5,
+    "links": 4,
+    "fields": 20,
+    "formulas": 3,
+    "parameters": 0,
+    "groups": 1,
+    "pictures": 0,
+    "subreports": 3,
+    "warnings": 0
+  },
+  "expectedDataCensus": {
+    "profiles": 1,
+    "degrees": 2,
+    "certifications": 4,
+    "projects": 3,
+    "accomplishments": 6,
+    "projectLines": 15
+  },
+  "sigma": {
+    "degreesTable": "XMLRESUME_DEGREES",
+    "certificationsTable": "XMLRESUME_CERTIFICATIONS",
+    "projectLinesTable": "XMLRESUME_PROJECT_LINES",
+    "queryElementIds": [
+      "xmlresume-academics",
+      "xmlresume-certifications",
+      "xmlresume-projects"
+    ],
+    "artifactPrefix": "xmlresume-report"
+  },
+  "notes": [
+    "The upstream README directs users to edit this XML, open this RPT, refresh it, and export the result.",
+    "The Crystal PDF reproduces the pinned XML values and identifies Crystal Reports / Powered By Crystal.",
+    "The source contains three subreports for academics, certifications, and projects; the migration flattens them into deterministic warehouse tables."
+  ]
+}

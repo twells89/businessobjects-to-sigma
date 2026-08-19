@@ -5,7 +5,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "test": "node test/smoke.mjs && node test/webi-formula.test.mjs && node test/webi-integration.test.mjs && node test/dm-merge.test.mjs && node test/code_rep.test.mjs && node test/crystal-extraction.test.mjs && node test/crystal-formula.test.mjs && node test/crystal-source.test.mjs && node test/report-code-rep.test.mjs && node test/crystal-integration.test.mjs && node test/crystal-pettycash-integration.test.mjs",
+    "test": "node test/smoke.mjs && node test/webi-formula.test.mjs && node test/webi-integration.test.mjs && node test/dm-merge.test.mjs && node test/code_rep.test.mjs && node test/crystal-extraction.test.mjs && node test/crystal-formula.test.mjs && node test/crystal-source.test.mjs && node test/report-code-rep.test.mjs && node test/crystal-integration.test.mjs && node test/crystal-pettycash-integration.test.mjs && node test/crystal-xmlresume-integration.test.mjs",
     "discover": "node scripts/discover.mjs",
     "migrate:universe": "node scripts/migrate-universe.mjs",
     "migrate:webi": "node scripts/migrate-webi.mjs",
@@ -13,7 +13,9 @@
     "extract:crystal:rpt-rs": "node scripts/extract-crystal-rpt-rs.mjs",
     "seed:crystal": "python3 scripts/seed-crystal-snowflake.py",
     "seed:crystal:pettycash": "python3 scripts/seed-pettycash-snowflake.py",
-    "e2e:crystal:pettycash": "node scripts/e2e-pettycash-report.mjs"
+    "e2e:crystal:pettycash": "node scripts/e2e-pettycash-report.mjs",
+    "seed:crystal:xmlresume": "python3 scripts/seed-xmlresume-snowflake.py",
+    "e2e:crystal:xmlresume": "node scripts/e2e-xmlresume-report.mjs"
   },
   "engines": {
     "node": ">=18"

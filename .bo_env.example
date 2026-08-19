@@ -53,3 +53,8 @@ CRYSTAL_E2E_CREATE=false
 # after the first run by setting the returned report ID.
 PETTYCASH_E2E_CREATE=false
 PETTYCASH_E2E_REPORT_ID=
+
+# MIT XML Résumé source/PDF/XML oracle gate.
+XMLRESUME_E2E_CREATE=false
+XMLRESUME_E2E_REPORT_ID=
+XMLRESUME_ARTIFACTS_DIR=artifacts/crystal/xmlresume-e2e
