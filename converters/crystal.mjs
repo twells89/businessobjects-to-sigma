@@ -328,6 +328,6 @@ function clamp(value, min, max) {
 }
 
 function round(value) {
-  return Math.round(value * 100) / 100;
+  return Math.round(value);
 }
 

@@ -34,6 +34,9 @@ check(report.document.config.pageHeight === Math.round(fixture.page.heightTwips 
 check(report.document.panels.some(panel => panel.type === 'header'), 'page header becomes report header panel');
 check(report.document.panels.some(panel => panel.type === 'footer'), 'page footer becomes report footer panel');
 check(!/gridColumn|Container/.test(report.document.layout), 'emits absolute pixel layout only');
+const geometry = [...report.document.layout.matchAll(/\b(?:x|y|width|height)="([^"]+)"/g)]
+  .map(match => match[1]);
+check(geometry.length > 0 && geometry.every(value => /^\d+$/.test(value)), 'layout geometry uses integer pixels');
 
 const table = report.document.elements.find(element => element.id === 'statement-detail');
 check(table?.source?.kind === 'warehouse-table', 'detail table uses live-proven report warehouse source');
