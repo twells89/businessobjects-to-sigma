@@ -14,21 +14,15 @@ import { buildAbsoluteLayout, prepareReportForPost } from '../scripts/report-cod
 
 const MERIDIAN_COLUMNS = [
   ['customer_id', 'Customer Id', null],
-  ['account_code', 'Account', null],
   ['customer_name', 'Customer', null],
-  ['city_name', 'City', null],
-  ['province_code', 'Province', null],
-  ['country_name', 'Country', null],
   ['invoice_number', 'Invoice #', null],
-  ['invoice_date', 'Invoice Date', null],
-  ['due_date', 'Due Date', null],
+  ['invoice_date', 'Invoice Date', dateFormat()],
+  ['due_date', 'Due Date', dateFormat()],
   ['status_name', 'Status', null],
-  ['currency_code', 'Currency', null],
+  ['currency_code', 'Cur', null],
   ['charges', 'Charges', moneyFormat()],
   ['payments', 'Payments', moneyFormat()],
   ['balance', 'Balance', moneyFormat()],
-  ['aging_bucket', 'Aging', null],
-  ['usd_balance', 'USD Balance', moneyFormat('$')],
 ];
 
 export function convertCrystalToReport(ir, options = {}) {
@@ -142,7 +136,7 @@ export function convertCrystalToReport(ir, options = {}) {
   const title = {
     id: 'statement-title',
     kind: 'text',
-    body: '# STATEMENT OF ACCOUNT\nMigrated from SAP Crystal Reports',
+    body: '## STATEMENT OF ACCOUNT',
   };
   const company = {
     id: 'company-heading',
@@ -152,7 +146,7 @@ export function convertCrystalToReport(ir, options = {}) {
   const agingNote = {
     id: 'aging-note',
     kind: 'text',
-    body: 'Aging is calculated against the current warehouse date. Amounts and payment totals come from the live Snowflake sample.',
+    body: 'Amounts and payment totals come from the live Snowflake sample.',
   };
   const headerText = {
     id: 'header-text',
@@ -170,13 +164,16 @@ export function convertCrystalToReport(ir, options = {}) {
   const footerHeight = 30;
   const contentWidth = Math.max(1, pageWidth - margin * 2);
   const bodyTop = margin;
-  const tableTop = bodyTop + 150;
-  const tableHeight = Math.max(120, pageHeight - tableTop - margin - headerHeight - footerHeight);
+  const tableTop = bodyTop + 158;
+  const tableHeight = Math.max(
+    120,
+    Math.min(620, pageHeight - tableTop - margin * 2 - headerHeight - footerHeight),
+  );
   const placements = [
     place(pageId, 'page', title.id, margin, bodyTop, contentWidth * 0.62, 58),
     place(pageId, 'page', company.id, margin, bodyTop + 62, contentWidth * 0.62, 54),
     place(pageId, 'page', totalKpi.id, margin + contentWidth * 0.66, bodyTop, contentWidth * 0.34, 92),
-    place(pageId, 'page', agingNote.id, margin, bodyTop + 118, contentWidth, 28),
+    place(pageId, 'page', agingNote.id, margin, bodyTop + 118, contentWidth, 34),
     place(pageId, 'page', table.id, margin, tableTop, contentWidth, tableHeight),
     place(headerId, 'panel', headerText.id, margin, 8, contentWidth, 26),
     place(footerId, 'panel', footerText.id, margin, 5, contentWidth, 20),
@@ -321,6 +318,10 @@ function moneyFormat(symbol = '') {
     formatString: `${symbol},.2f`,
     ...(symbol ? { currencySymbol: symbol } : {}),
   };
+}
+
+function dateFormat() {
+  return { kind: 'datetime', formatString: '%Y-%m-%d' };
 }
 
 function clamp(value, min, max) {

@@ -18,6 +18,7 @@ import {
   exportReportPdf,
   getReportInventory,
   postReport,
+  putReportSpec,
   queryReportElement,
   referenceReportSchemaVersion,
   verifyReport,
@@ -157,6 +158,10 @@ async function main() {
   }
 
   const resumeReportId = process.env.CRYSTAL_E2E_REPORT_ID;
+  if (resumeReportId) {
+    await putReportSpec(resumeReportId, converted.report);
+    console.log(`Updated report ${resumeReportId} with the current converted document`);
+  }
   const created = resumeReportId
     ? { reportId: resumeReportId, result: { reportId: resumeReportId }, body: converted.report }
     : await postReport(converted.report, { verify: false });

@@ -8,6 +8,7 @@
  */
 
 import { writeFileSync } from 'node:fs';
+import { isDeepStrictEqual } from 'node:util';
 import { prepareReportForPost, prepareReportForUpdate, validateReportSpec } from './report-code-rep.mjs';
 import { SIGMA_BASE, sigmaRequest, sigmaToken } from './sigma.mjs';
 
@@ -88,7 +89,7 @@ export async function assertReportReadback(reportId, submitted, normalize) {
   const readback = await getReportSpec(reportId);
   const expected = normalize(submitted);
   const actual = normalize(readback);
-  if (JSON.stringify(expected) !== JSON.stringify(actual)) {
+  if (!isDeepStrictEqual(expected, actual)) {
     throw new Error('Report GET readback differs from the submitted normalized document');
   }
   return readback;

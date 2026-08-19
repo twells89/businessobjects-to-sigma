@@ -46,6 +46,12 @@ check(
 );
 check(table?.columns.some(column => column.formula === '[CUSTOMER_STATEMENT_ROWS/INVOICE_NUMBER]'), 'invoice source column emitted');
 check(!table?.groupings, 'transaction detail stays ungrouped by default');
+check(table?.columns.filter(column => !column.hidden).length === 9, 'detail table keeps the Crystal eight-column layout plus customer context');
+check(
+  table?.columns.find(column => column.id === 'col-invoice-date')?.format?.formatString === '%Y-%m-%d',
+  'invoice dates render without midnight timestamps',
+);
+check(!table?.columns.some(column => column.id === 'col-city-name'), 'address fields stay out of the printable detail table');
 
 const grouped = convertCrystalToReport(fixture, {
   folderId: 'FOLDER',
