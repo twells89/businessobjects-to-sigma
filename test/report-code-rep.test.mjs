@@ -7,6 +7,7 @@ import {
   reportMetadata,
   validateReportSpec,
 } from '../scripts/report-code-rep.mjs';
+import { reportIdFromResult } from '../scripts/sigma-report.mjs';
 
 let failures = 0;
 function check(condition, message) {
@@ -15,17 +16,23 @@ function check(condition, message) {
 }
 
 console.log('Sigma report code representation');
+check(
+  reportIdFromResult('success: true\nreportId: 6a8b85c5-eb77-4cf8-bb00-f31943925849\n')
+    === '6a8b85c5-eb77-4cf8-bb00-f31943925849',
+  'report create parses YAML response IDs',
+);
 const layout = buildAbsoluteLayout({
   pages: [{ id: 'p1' }],
   panels: [{ id: 'head', type: 'header' }],
   placements: [
-    { rootId: 'p1', rootType: 'page', elementId: 'title', x: 48, y: 48, width: 720, height: 48 },
+    { rootId: 'p1', rootType: 'page', elementId: 'title', x: 48.4, y: 48, width: 719.6, height: 48 },
     { rootId: 'head', rootType: 'panel', elementId: 'head-text', x: 48, y: 8, width: 720, height: 20 },
   ],
 });
 check(layout.includes('<Page id="p1">'), 'layout emits Page root');
 check(layout.includes('<Panel id="head" type="header">'), 'layout emits typed Panel root');
 check(!/gridColumn|Container/.test(layout), 'layout has no workbook syntax');
+check(layout.includes('x="48" y="48" width="720" height="48"'), 'layout rounds geometry to integer pixels');
 
 const report = prepareReportForPost({
   name: 'R',

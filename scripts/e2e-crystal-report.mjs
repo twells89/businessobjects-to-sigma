@@ -156,7 +156,11 @@ async function main() {
     return;
   }
 
-  const created = await postReport(converted.report, { verify: false });
+  const resumeReportId = process.env.CRYSTAL_E2E_REPORT_ID;
+  const created = resumeReportId
+    ? { reportId: resumeReportId, result: { reportId: resumeReportId }, body: converted.report }
+    : await postReport(converted.report, { verify: false });
+  if (resumeReportId) console.log(`Resuming persistent gate for report ${resumeReportId}`);
   if (!created.reportId) throw new Error(`Create returned no reportId: ${JSON.stringify(created.result)}`);
   const readback = await assertReportReadback(
     created.reportId,

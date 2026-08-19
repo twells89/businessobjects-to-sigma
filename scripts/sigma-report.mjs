@@ -43,11 +43,19 @@ export async function postReport(report, { verify = true } = {}) {
   }
   const result = await sigmaRequest('POST', '/v2/reports/spec', body);
   return {
-    reportId: result.reportId || result.id,
+    reportId: reportIdFromResult(result),
     result,
     body,
     warnings: offline.warnings,
   };
+}
+
+export function reportIdFromResult(result) {
+  if (result && typeof result === 'object') return result.reportId || result.id || null;
+  const match = String(result || '').match(
+    /(?:reportId|id)\s*:\s*"?([0-9a-f]{8}-[0-9a-f-]{27,})"?/i,
+  );
+  return match?.[1] || null;
 }
 
 export async function getReportSpec(reportId) {
