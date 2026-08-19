@@ -1,0 +1,141 @@
+{
+  "irVersion": "1.0",
+  "source": {
+    "kind": "fixture",
+    "name": "MonthlyReport.rpt",
+    "path": null,
+    "sha256": null,
+    "crystalVersion": "fixture",
+    "extractorVersion": "fixture",
+    "extractedAt": "2026-08-19T00:00:00Z"
+  },
+  "report": {
+    "name": "PettyCash Monthly Report",
+    "title": "Monthly Report - June2016",
+    "description": "Repository-owned structural fixture for the public MIT report",
+    "author": "businessobjects-to-sigma",
+    "recordSelectionFormula": null,
+    "groupSelectionFormula": null
+  },
+  "page": {
+    "widthTwips": 12240,
+    "heightTwips": 15840,
+    "orientation": "portrait",
+    "marginsTwips": {
+      "top": 360,
+      "right": 360,
+      "bottom": 360,
+      "left": 360
+    },
+    "paperName": "Letter",
+    "printerName": null,
+    "dissociateFormattingPageSizeAndPrinterPaperSize": null
+  },
+  "sections": [
+    {
+      "id": "report-header",
+      "name": "Section1",
+      "kind": "report-header",
+      "groupIndex": null,
+      "heightTwips": 3821,
+      "widthTwips": 11520,
+      "visible": true,
+      "suppressFormula": null,
+      "newPageBefore": false,
+      "newPageAfter": false,
+      "keepTogether": true,
+      "objects": [
+        {
+          "id": "logo",
+          "name": "Picture1",
+          "kind": "picture",
+          "xTwips": 3960,
+          "yTwips": 240,
+          "widthTwips": 3060,
+          "heightTwips": 795,
+          "zIndex": 0,
+          "text": null,
+          "fieldId": null,
+          "formulaName": null,
+          "summaryName": null,
+          "subreportName": null,
+          "format": {},
+          "conditionFormulas": {},
+          "image": null,
+          "extensions": {}
+        }
+      ]
+    },
+    {
+      "id": "details",
+      "name": "Section3",
+      "kind": "details",
+      "groupIndex": null,
+      "heightTwips": 985,
+      "widthTwips": 11520,
+      "visible": true,
+      "suppressFormula": null,
+      "newPageBefore": false,
+      "newPageAfter": false,
+      "keepTogether": false,
+      "objects": [
+        {
+          "id": "detail-item",
+          "name": "itemname1",
+          "kind": "field",
+          "xTwips": 6480,
+          "yTwips": 240,
+          "widthTwips": 1680,
+          "heightTwips": 221,
+          "zIndex": 0,
+          "text": null,
+          "fieldId": "sp-monthlyreport-item-name",
+          "formulaName": null,
+          "summaryName": null,
+          "subreportName": null,
+          "format": {},
+          "conditionFormulas": {},
+          "image": null,
+          "extensions": {}
+        }
+      ]
+    }
+  ],
+  "data": {
+    "tables": [
+      {
+        "id": "sp-monthlyreport",
+        "name": "sp_monthlyreport;1",
+        "kind": "stored-procedure",
+        "database": "PettyCashApp",
+        "schema": "dbo",
+        "qualifiedName": "PettyCashApp.dbo.sp_monthlyreport;1",
+        "alias": "sp_monthlyreport;1",
+        "commandSql": null,
+        "connection": {}
+      }
+    ],
+    "links": [],
+    "fields": [
+      { "id": "field-id", "name": "id", "table": "sp_monthlyreport;1", "physicalName": "id", "dataType": "Int32s" },
+      { "id": "field-entry-date", "name": "entry_date", "table": "sp_monthlyreport;1", "physicalName": "entry_date", "dataType": "PersistentMemo" },
+      { "id": "field-type", "name": "typ", "table": "sp_monthlyreport;1", "physicalName": "typ", "dataType": "PersistentMemo" },
+      { "id": "field-receipt", "name": "r_no", "table": "sp_monthlyreport;1", "physicalName": "r_no", "dataType": "PersistentMemo" },
+      { "id": "sp-monthlyreport-item-name", "name": "item_name", "table": "sp_monthlyreport;1", "physicalName": "item_name", "dataType": "PersistentMemo" },
+      { "id": "field-qty", "name": "qty", "table": "sp_monthlyreport;1", "physicalName": "qty", "dataType": "Number" },
+      { "id": "field-amount", "name": "amount", "table": "sp_monthlyreport;1", "physicalName": "amount", "dataType": "PersistentMemo" }
+    ],
+    "formulas": [],
+    "parameters": [],
+    "groups": [],
+    "sorts": [],
+    "summaries": [],
+    "runningTotals": [],
+    "sqlExpressions": []
+  },
+  "subreports": [],
+  "warnings": [],
+  "extensions": {
+    "hasSavedData": false
+  }
+}

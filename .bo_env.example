@@ -48,3 +48,8 @@ CRYSTAL_SIGMA_ROLE=SIGMA_ROLE
 # Persistent report creation has no API cleanup. The E2E refuses to create
 # unless this is explicitly true and SIGMA_FOLDER_ID is approved.
 CRYSTAL_E2E_CREATE=false
+
+# PettyCash source/PDF visual-oracle gate. Creation can be resumed in place
+# after the first run by setting the returned report ID.
+PETTYCASH_E2E_CREATE=false
+PETTYCASH_E2E_REPORT_ID=
