@@ -34,6 +34,15 @@ check(report.document.config.pageHeight === Math.round(fixture.page.heightTwips 
 check(report.document.panels.some(panel => panel.type === 'header'), 'page header becomes report header panel');
 check(report.document.panels.some(panel => panel.type === 'footer'), 'page footer becomes report footer panel');
 check(!/gridColumn|Container/.test(report.document.layout), 'emits absolute pixel layout only');
+check(
+  /<Element elementId="statement-title" x="0"/.test(report.document.layout)
+    && /<Element elementId="statement-detail" x="0"/.test(report.document.layout),
+  'page body aligns to the report content edge without a duplicate margin',
+);
+check(
+  /<Element elementId="header-text" x="48"/.test(report.document.layout),
+  'full-page header panel retains the physical page margin',
+);
 const geometry = [...report.document.layout.matchAll(/\b(?:x|y|width|height)="([^"]+)"/g)]
   .map(match => match[1]);
 check(geometry.length > 0 && geometry.every(value => /^\d+$/.test(value)), 'layout geometry uses integer pixels');

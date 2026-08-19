@@ -163,18 +163,21 @@ export function convertCrystalToReport(ir, options = {}) {
   const headerHeight = 42;
   const footerHeight = 30;
   const contentWidth = Math.max(1, pageWidth - margin * 2);
-  const bodyTop = margin;
+  // Page-root coordinates are relative to Sigma's already-margined body.
+  // Panel roots use the full physical page, so their children still need the
+  // explicit margin below.
+  const bodyTop = 16;
   const tableTop = bodyTop + 158;
   const tableHeight = Math.max(
     120,
-    Math.min(620, pageHeight - tableTop - margin * 2 - headerHeight - footerHeight),
+    Math.min(680, pageHeight - tableTop - margin * 2 - headerHeight - footerHeight),
   );
   const placements = [
-    place(pageId, 'page', title.id, margin, bodyTop, contentWidth * 0.62, 58),
-    place(pageId, 'page', company.id, margin, bodyTop + 62, contentWidth * 0.62, 54),
-    place(pageId, 'page', totalKpi.id, margin + contentWidth * 0.66, bodyTop, contentWidth * 0.34, 92),
-    place(pageId, 'page', agingNote.id, margin, bodyTop + 118, contentWidth, 34),
-    place(pageId, 'page', table.id, margin, tableTop, contentWidth, tableHeight),
+    place(pageId, 'page', title.id, 0, bodyTop, contentWidth * 0.62, 58),
+    place(pageId, 'page', company.id, 0, bodyTop + 62, contentWidth * 0.62, 54),
+    place(pageId, 'page', totalKpi.id, contentWidth * 0.66, bodyTop, contentWidth * 0.34, 92),
+    place(pageId, 'page', agingNote.id, 0, bodyTop + 118, contentWidth, 34),
+    place(pageId, 'page', table.id, 0, tableTop, contentWidth, tableHeight),
     place(headerId, 'panel', headerText.id, margin, 8, contentWidth, 26),
     place(footerId, 'panel', footerText.id, margin, 5, contentWidth, 20),
   ];
