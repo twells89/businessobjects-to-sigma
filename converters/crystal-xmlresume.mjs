@@ -30,7 +30,7 @@ export function convertXmlResumeToReport(ir, options = {}) {
     {
       id: 'xmlresume-name',
       kind: 'text',
-      body: '## <span style="color: #17365D">FIRST LAST</span>',
+      body: '**<span style="color: #17365D">FIRST LAST</span>**',
     },
     {
       id: 'xmlresume-objective',
@@ -121,18 +121,18 @@ export function convertXmlResumeToReport(ir, options = {}) {
     },
   ];
   const placements = [
-    place(pageId, 'page', 'xmlresume-name', 620, 0, 136, 32),
+    place(pageId, 'page', 'xmlresume-name', 650, 4, 106, 24),
     place(pageId, 'page', 'xmlresume-name-rule', 0, 30, 756, 2),
     place(pageId, 'page', 'xmlresume-objective', 0, 38, 756, 70),
     place(pageId, 'page', 'xmlresume-contact-heading', 0, 112, 380, 24),
     place(pageId, 'page', 'xmlresume-address', 0, 132, 300, 76),
     place(pageId, 'page', 'xmlresume-contact', 380, 132, 376, 76),
-    place(pageId, 'page', 'xmlresume-academics-heading', 0, 210, 372, 24),
-    place(pageId, 'page', 'xmlresume-certifications-heading', 380, 210, 376, 24),
-    place(pageId, 'page', 'xmlresume-academics', 0, 222, 372, 108),
-    place(pageId, 'page', 'xmlresume-certifications', 380, 222, 376, 108),
-    place(pageId, 'page', 'xmlresume-projects-heading', 0, 330, 372, 24),
-    place(pageId, 'page', 'xmlresume-projects', 0, 342, 756, 604),
+    place(pageId, 'page', 'xmlresume-academics-heading', 0, 230, 372, 24),
+    place(pageId, 'page', 'xmlresume-certifications-heading', 380, 230, 376, 24),
+    place(pageId, 'page', 'xmlresume-academics', 0, 250, 372, 140),
+    place(pageId, 'page', 'xmlresume-certifications', 380, 250, 376, 140),
+    place(pageId, 'page', 'xmlresume-projects-heading', 0, 400, 372, 24),
+    place(pageId, 'page', 'xmlresume-projects', 0, 420, 756, 540),
     place(footerId, 'panel', 'xmlresume-page-number', 360, 8, 36, 18),
     place(footerId, 'panel', 'xmlresume-modified', 572, 8, 184, 18),
   ];
