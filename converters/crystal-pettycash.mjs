@@ -141,7 +141,7 @@ export function convertPettyCashToReport(ir, options = {}) {
     place(pageId, 'page', 'pettycash-opened-by', 536, 152, 208, 28),
     place(pageId, 'page', 'pettycash-opening-balance', 32, 208, 230, 28),
     place(pageId, 'page', 'pettycash-frozen-date', 536, 208, 208, 28),
-    place(pageId, 'page', 'pettycash-detail', 8, 218, 752, 646),
+    place(pageId, 'page', 'pettycash-detail', 8, 248, 752, 616),
     place(pageId, 'page', 'pettycash-withdraw-total', 24, 896, 240, 32),
     place(pageId, 'page', 'pettycash-deposit-total', 264, 896, 224, 32),
     place(pageId, 'page', 'pettycash-closing-balance', 512, 896, 232, 32),
@@ -151,7 +151,7 @@ export function convertPettyCashToReport(ir, options = {}) {
   const framePlacements = [
     ['pettycash-meta-top', 8, 136, 752, 2],
     ['pettycash-meta-bottom', 8, 246, 752, 2],
-    ['pettycash-detail-top', 8, 256, 752, 2],
+    ['pettycash-detail-top', 8, 286, 752, 2],
     ['pettycash-detail-bottom', 8, 872, 752, 2],
     ['pettycash-totals-top', 8, 888, 752, 2],
     ['pettycash-totals-bottom', 8, 920, 752, 2],
