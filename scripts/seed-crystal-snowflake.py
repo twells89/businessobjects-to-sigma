@@ -249,7 +249,7 @@ def translate_insert(statement: str) -> str:
     # Binary logos are irrelevant to the first Sigma report (the image object is
     # explicitly logged as a degradation). Avoid moving several MB of encoded
     # PostgreSQL bytea through Snowflake.
-    statement = re.sub(r"E?'\\\\x[0-9A-Fa-f]*'::bytea", "NULL", statement)
+    statement = re.sub(r"E?'\\x[0-9A-Fa-f]*'(?:::bytea)?", "NULL", statement)
     statement = statement.replace("::bytea", "")
     return statement
 

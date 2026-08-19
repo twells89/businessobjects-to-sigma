@@ -272,7 +272,7 @@ Set expectations with this before promising a Webi migration, and use it as the 
 | A4/Letter dimensions, margins, absolute geometry | 🟢 | twips ÷ 15 → Sigma report pixels; PDF-check rounding |
 | Page header/footer | 🟢 | report header/footer panels |
 | Detail band fields | 🟢 | report table over live warehouse source |
-| Groups/sorts/summaries | 🟢 / 🟡 | table grouping/calculation + KPI; inspect pagination/totals |
+| Groups/sorts/summaries | 🟡 | default keeps transaction detail; `--group-customers` opts into an aggregated table grouping; KPI carries grand total |
 | Formula refs, arithmetic, `IIf`/`If`, null/string/date/common aggregates | 🟢 / 🟡 | translated subset; every warning preserves source |
 | Record/group selection + parameters | 🟡 | preserved; wire non-synced controls/filter scope after targeted verify |
 | Conditional suppress/color/format | 🟡 | inventory preserved; map only verified Sigma report shapes |

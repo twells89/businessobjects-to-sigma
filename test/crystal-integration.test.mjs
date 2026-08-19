@@ -42,7 +42,16 @@ check(
   'detail table targets isolated Snowflake wide view',
 );
 check(table?.columns.some(column => column.formula === '[CUSTOMER_STATEMENT_ROWS/INVOICE_NUMBER]'), 'invoice source column emitted');
-check(table?.groupings?.[0]?.groupBy?.length === 1, 'Crystal customer group becomes Sigma table grouping');
+check(!table?.groupings, 'transaction detail stays ungrouped by default');
+
+const grouped = convertCrystalToReport(fixture, {
+  folderId: 'FOLDER',
+  connectionId: 'CONNECTION',
+  profile: 'meridian-customer-statement',
+  groupCustomers: true,
+});
+const groupedTable = grouped.report.document.elements.find(element => element.id === 'statement-detail');
+check(groupedTable?.groupings?.[0]?.groupBy?.length === 1, 'customer-summary mode explicitly adds Sigma grouping');
 
 const kpi = report.document.elements.find(element => element.id === 'statement-total');
 check(kpi?.kind === 'kpi-chart', 'report total becomes KPI');

@@ -192,6 +192,7 @@ export function normalizeRptRsCrystal(input, options = {}) {
 function normalizeObject(object, zIndex, warnings) {
   const tag = unionTag(object.kind);
   const value = unionValue(object.kind) || {};
+  const { data: embeddedHex, ...sourceKindValue } = value;
   const bounds = object.bounds || {};
   const sourceKind = tag || 'Unknown';
   const kind = {
@@ -232,8 +233,8 @@ function normalizeObject(object, zIndex, warnings) {
       value.font_color?.condition_formulas,
     ),
     image: kind === 'picture' ? {
-      mimeType: null,
-      dataBase64: null,
+      mimeType: imageMime(embeddedHex),
+      dataBase64: hexToBase64(embeddedHex),
       sourcePath: value.location_formula || null,
       sourceField: normalizeRef(value.location_formula),
       embedOrdinal: value.ole_ordinal ?? null,
@@ -241,7 +242,10 @@ function normalizeObject(object, zIndex, warnings) {
     extensions: {
       sourceKind,
       origin: object.origin || null,
-      sourceKindValue: value,
+      sourceKindValue,
+      embeddedImageBytes: typeof embeddedHex === 'string'
+        ? Math.floor(embeddedHex.length / 2)
+        : null,
       border: object.border || null,
     },
   };
@@ -434,6 +438,21 @@ function rgbaHex(color) {
   return `#${[color.r, color.g, color.b]
     .map(v => Math.max(0, Math.min(255, Number(v))).toString(16).padStart(2, '0'))
     .join('')}`.toUpperCase();
+}
+
+function hexToBase64(value) {
+  if (typeof value !== 'string' || !/^[0-9a-f]+$/i.test(value) || value.length % 2) return null;
+  return Buffer.from(value, 'hex').toString('base64');
+}
+
+function imageMime(value) {
+  if (typeof value !== 'string') return null;
+  const hex = value.toLowerCase();
+  if (hex.startsWith('89504e47')) return 'image/png';
+  if (hex.startsWith('ffd8ff')) return 'image/jpeg';
+  if (hex.startsWith('47494638')) return 'image/gif';
+  if (hex.startsWith('424d')) return 'image/bmp';
+  return 'application/octet-stream';
 }
 
 function unionTag(value) {

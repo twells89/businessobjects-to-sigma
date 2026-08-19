@@ -43,7 +43,10 @@ export function convertCrystalToReport(ir, options = {}) {
     schemaVersion = 1,
     reportName = ir.report?.name || 'Crystal Report',
     profile = detectProfile(ir),
-    groupCustomers = true,
+    // Sigma table groupings aggregate the displayed rows. Preserve invoice
+    // detail by default; opt in only when the target should be a customer-level
+    // summary rather than the Crystal statement's transaction lines.
+    groupCustomers = false,
   } = options;
   const warnings = [];
   const degradationLedger = [];

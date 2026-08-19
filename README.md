@@ -52,7 +52,8 @@ and the public Meridian proof, but is not the production extraction contract.
 - page size/margins + twip geometry → report `document.config` and absolute
   pixel `<Page>`/`<Panel>` layout
 - page headers/footers → repeating Sigma report panels
-- detail/group bands → report table + grouping; report total → KPI
+- detail band → ungrouped report table by default; optional customer-summary
+  mode adds grouping (Sigma grouping aggregates rows); report total → KPI
 - direct tables/links → existing universe/data-model converter when useful;
   the Meridian proof uses a Snowflake wide view and live-proven report
   `warehouse-table` source
@@ -170,7 +171,7 @@ The first profile is the pinned MPL-2.0 Meridian customer statement:
 | A4 page, margins, portrait/landscape | 🟢 | `document.config` + 96-DPI twip conversion |
 | Page header/footer | 🟢 | repeating report header/footer panels |
 | Detail fields | 🟢 | warehouse-backed report table |
-| Customer group + total | 🟢/🟡 | table grouping + hidden aggregate calculation; inspect PDF |
+| Customer group + total | 🟡 | default preserves invoice detail; optional `--group-customers` emits an aggregated customer summary |
 | Report grand total | 🟢 | KPI over live Snowflake view |
 | Common arithmetic, `IIf`, nested `If`, null/date/string functions | 🟢/🟡 | translated with per-formula warnings |
 | Parameters / record selection | 🟡 | preserved; first proof uses warehouse defaults rather than unverified synced controls |

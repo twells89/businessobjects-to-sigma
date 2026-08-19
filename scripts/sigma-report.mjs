@@ -51,7 +51,7 @@ export async function postReport(report, { verify = true } = {}) {
 }
 
 export async function getReportSpec(reportId) {
-  return sigmaRequest('GET', `/v2/reports/${reportId}/spec`);
+  return sigmaRequest('GET', `/v2/reports/${reportId}/spec?format=json`);
 }
 
 export async function putReportSpec(reportId, spec) {

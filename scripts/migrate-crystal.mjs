@@ -49,6 +49,7 @@ async function main() {
     sourceTable: value('--source-table') || 'CUSTOMER_STATEMENT_ROWS',
     schemaVersion,
     reportName: value('--name') || `${ir.report?.name || basename(absoluteIr, '.json')} (Crystal Migration)`,
+    groupCustomers: has('--group-customers'),
   });
 
   const offline = validateReportSpec(result.report);

@@ -44,6 +44,20 @@ const raw = {
             bounds: { left: 0, top: 0, width: 1000, height: 260 },
             format: { can_grow: false, suppress: { value: false }, condition_formulas: [] },
             border: { background_color: null, condition_formulas: [] },
+          }, {
+            name: 'Logo',
+            kind: {
+              Picture: {
+                picture_type: 'Bitmap',
+                data: '89504e470d0a1a0a',
+                ole_ordinal: 1,
+                location_formula: null,
+              },
+            },
+            origin: { index: 1 },
+            bounds: { left: 1200, top: 0, width: 400, height: 260 },
+            format: { can_grow: false, suppress: { value: false }, condition_formulas: [] },
+            border: { background_color: null, condition_formulas: [] },
           }],
         }],
       }],
@@ -113,6 +127,9 @@ check(ir.irVersion === '1.0' && ir.source.kind === 'rpt-rs-json', 'normalizes ex
 check(ir.page.widthTwips === 11906 && ir.page.heightTwips === 16838, 'reconstructs total A4 twip size from content + margins');
 check(ir.sections[0].kind === 'details', 'normalizes Detail section kind');
 check(ir.sections[0].objects[0].fieldId === 'invoice.invoice_id', 'normalizes field binding');
+check(ir.sections[0].objects[1].image.mimeType === 'image/png', 'detects embedded picture MIME type');
+check(ir.sections[0].objects[1].image.dataBase64 === 'iVBORw0KGgo=', 'converts embedded hex picture to Base64');
+check(!('data' in ir.sections[0].objects[1].extensions.sourceKindValue), 'does not duplicate raw hex in extensions');
 check(ir.data.fields.length === 2 && ir.data.fields[0].table === 'invoice', 'uses table-level field definitions');
 check(ir.data.formulas[0].name === 'Balance', 'normalizes formula fields');
 check(ir.data.parameters[0].name === 'Minimum', 'normalizes parameters');
