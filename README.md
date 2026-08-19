@@ -220,7 +220,19 @@ python3 scripts/seed-crystal-snowflake.py             # isolated synthetic data 
 RPT_RS_BIN=/path/to/rpt node scripts/extract-crystal-rpt-rs.mjs report.rpt --out report.ir.json
 node scripts/migrate-crystal.mjs --ir report.ir.json # offline + Sigma /verify, no create
 node scripts/migrate-crystal.mjs --ir report.ir.json --create --pdf statement.pdf
+
+# Crystal source/PDF visual oracle (MIT-licensed PettyCash sample)
+npm run e2e:crystal:pettycash                    # seed + verify, no create
+PETTYCASH_E2E_CREATE=true npm run e2e:crystal:pettycash
 ```
+
+The PettyCash gate downloads a pinned `.rpt` and the PDF exported from that
+exact template by Crystal Reports, validates both blob hashes, reconstructs
+the PDF's nine public rows in Snowflake, and writes the Crystal and Sigma PDFs
+side by side under `artifacts/crystal/pettycash-e2e/`. Sigma report code-rep
+supports horizontal dividers but does not currently expose vertical divider
+orientation or table cell-spacing styles; those differences are recorded in
+the degradation ledger rather than silently claimed as pixel-identical.
 
 Migrate a universe **before** the reports that use it — the workbook binds to the data model it produces.
 
