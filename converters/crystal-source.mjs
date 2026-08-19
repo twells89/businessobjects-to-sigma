@@ -69,6 +69,11 @@ export function crystalSourceToBobj(ir, options = {}) {
       expressions.push(`${link.leftTable}.${link.leftFields[i]} = ${link.rightTable}.${link.rightFields[i]}`);
     }
     const cardinality = cardinalityFor(link.leftTable, link.rightTable, factTable, link.cardinality);
+    if (!link.cardinality) {
+      warnings.push(
+        `Crystal link ${link.leftTable} → ${link.rightTable} carries no cardinality; inferred ${cardinality}. Verify the source side is many-grain.`,
+      );
+    }
     return [{
       left: link.leftTable,
       right: link.rightTable,
@@ -142,10 +147,13 @@ export function inferFactTable(ir) {
 
 function cardinalityFor(left, right, factTable, sourceCardinality) {
   if (sourceCardinality) return sourceCardinality;
-  if (!factTable) return undefined;
+  // Crystal's link arrays are normally emitted FK/source → PK/target. Keep
+  // that direction for dimension chains when the detail fact does not touch
+  // the link directly; every inference remains a surfaced warning.
+  if (!factTable) return 'many-to-one';
   if (same(left, factTable) && !same(right, factTable)) return 'many-to-one';
   if (same(right, factTable) && !same(left, factTable)) return 'one-to-many';
-  return undefined;
+  return 'many-to-one';
 }
 
 function normalizePhysicalRef(value) {

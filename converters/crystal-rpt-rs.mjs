@@ -58,7 +58,12 @@ export function normalizeRptRsCrystal(input, options = {}) {
   const data = {
     tables: (model.database?.tables || []).map(normalizeTable),
     links: (model.database?.links || []).map(normalizeLink),
-    fields: definitions.filter(d => unionTag(d.kind) === 'Database').map(normalizeDatabaseField),
+    // rpt-rs' global Database field definitions intentionally omit the table
+    // alias; the authoritative binding lives on database.tables[].data_fields.
+    // Read from there so duplicate names such as customer.name/city.name remain
+    // distinct and the source adapter can build real physical columns.
+    fields: (model.database?.tables || []).flatMap(table =>
+      (table.data_fields || []).map(field => normalizeTableField(table, field))),
     formulas: definitions.filter(d => unionTag(d.kind) === 'Formula').map(normalizeFormulaField),
     parameters: definitions.filter(d => unionTag(d.kind) === 'Parameter').map(normalizeParameter),
     groups: (model.data_definition.groups || []).map((group, index) => ({
@@ -319,18 +324,23 @@ function normalizeLink(link) {
   };
 }
 
-function normalizeDatabaseField(definition) {
-  const database = unionValue(definition.kind) || {};
-  const longName = definition.long_name || database.long_name || database.formula_name || '';
+function normalizeTableField(table, definition) {
+  const longName = definition.long_name || `${table.alias || table.name}.${definition.name}`;
   const normalized = normalizeRef(longName);
   const parts = normalized.split('.');
   return {
     id: stableId(normalized || definition.name),
     name: definition.name,
-    table: parts.length > 1 ? parts.slice(0, -1).join('.') : database.table_alias || null,
+    table: parts.length > 1 ? parts.slice(0, -1).join('.') : table.alias || table.name || null,
     physicalName: parts.at(-1) || definition.name,
     dataType: definition.value_type || null,
-    extensions: database,
+    extensions: {
+      description: definition.description || null,
+      length: definition.length ?? null,
+      shortName: definition.short_name || null,
+      tableName: table.name || null,
+      tableAlias: table.alias || null,
+    },
   };
 }
 
