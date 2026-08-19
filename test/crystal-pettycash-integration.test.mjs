@@ -59,8 +59,8 @@ check(
 );
 check(
   detail?.columns?.find(column => column.id === 'pettycash-col-item')
-    ?.formula === '[PETTYCASH_MONTHLY_REPORT_ROWS/ITEM_DISPLAY]',
-  'detail rows use the Crystal-width wrapped item display',
+    ?.formula === '[PETTYCASH_MONTHLY_REPORT_ROWS/ITEM_NAME]',
+  'detail rows retain complete item names',
 );
 check(
   report.document.elements.some(
@@ -73,14 +73,14 @@ check(
   'Crystal page footer becomes a report footer panel',
 );
 check(
-  report.document.elements.filter(element => element.kind === 'divider').length === 12,
-  'Crystal metadata, detail, and totals boxes become divider frames',
+  report.document.elements.filter(element => element.kind === 'divider').length === 6,
+  'Crystal metadata, detail, and totals sections retain horizontal rules',
 );
 check(
-  /elementId="pettycash-meta-left"[^>]+width="2"[^>]+height="112"/.test(
+  /elementId="pettycash-meta-top"[^>]+width="752"[^>]+height="2"/.test(
     report.document.layout,
   ),
-  'divider frames include vertical edges',
+  'horizontal rules use the full printable width',
 );
 check(
   result.degradationLedger.some(

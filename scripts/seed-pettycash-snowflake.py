@@ -10,15 +10,15 @@ import sys
 from cryptography.hazmat.primitives import serialization
 
 ROWS = (
-    (1, "2016-06-01", "Withdraw", "1082", "Maintanance Charge", "Maintanance\nCharge\n ", 1, 400.00),
-    (2, "2016-06-06", "Withdraw", "000", "Auto Charge", "Auto Charge\n \n ", 1, 40.00),
-    (3, "2016-06-07", "Withdraw", "C1989", "Tissue", "Tissue\n \n ", 3, 147.00),
-    (4, "2016-06-13", "Withdraw", "1229", "Packaged drinking water", "Packaged drinking\nwater\n ", 2, 100.00),
-    (5, "2016-06-22", "Withdraw", "C2802", "Cleaning Kit", "Cleaning Kit\n \n ", 1, 109.00),
-    (6, "2016-06-24", "Withdraw", "003", "Monthly cleaning charge", "Monthly cleaning\ncharge\n ", 1, 1250.00),
-    (7, "2016-06-28", "Withdraw", "1280", "Packaged Drinking water", "Packaged Drinking\nwater\n ", 2, 100.00),
-    (8, "2016-06-29", "Withdraw", "C1991", "Sugar", "Sugar\n \n ", 1, 42.00),
-    (9, "2016-06-29", "Withdraw", "C1991", "Tissue", "Tissue\n \n ", 2, 98.00),
+    (1, "2016-06-01", "Withdraw", "1082", "Maintanance Charge", 1, 400.00),
+    (2, "2016-06-06", "Withdraw", "000", "Auto Charge", 1, 40.00),
+    (3, "2016-06-07", "Withdraw", "C1989", "Tissue", 3, 147.00),
+    (4, "2016-06-13", "Withdraw", "1229", "Packaged drinking water", 2, 100.00),
+    (5, "2016-06-22", "Withdraw", "C2802", "Cleaning Kit", 1, 109.00),
+    (6, "2016-06-24", "Withdraw", "003", "Monthly cleaning charge", 1, 1250.00),
+    (7, "2016-06-28", "Withdraw", "1280", "Packaged Drinking water", 2, 100.00),
+    (8, "2016-06-29", "Withdraw", "C1991", "Sugar", 1, 42.00),
+    (9, "2016-06-29", "Withdraw", "C1991", "Tissue", 2, 98.00),
 )
 
 TABLE = "PETTYCASH_MONTHLY_REPORT_ROWS"
@@ -75,7 +75,7 @@ def main() -> int:
     if args.dry_run:
         print(
             f"Validated PettyCash PDF oracle: {len(ROWS)} rows, "
-            f"withdraw total {sum(row[7] for row in ROWS):.2f}"
+            f"withdraw total {sum(row[6] for row in ROWS):.2f}"
         )
         print(f"Target: {args.database}.{args.schema}.{TABLE} (dry run)")
         return 0
@@ -98,7 +98,6 @@ CREATE OR REPLACE TABLE {TABLE} (
   transaction_type VARCHAR(30) NOT NULL,
   receipt_no VARCHAR(20) NOT NULL,
   item_name VARCHAR(120) NOT NULL,
-  item_display VARCHAR(120) NOT NULL,
   qty INTEGER NOT NULL,
   amount NUMBER(12,2) NOT NULL,
   opening_date DATE NOT NULL,
@@ -116,10 +115,10 @@ CREATE OR REPLACE TABLE {TABLE} (
             cursor.executemany(
                 f"""
 INSERT INTO {TABLE} (
-  id, entry_date, transaction_type, receipt_no, item_name, item_display, qty, amount,
+  id, entry_date, transaction_type, receipt_no, item_name, qty, amount,
   opening_date, frozen_date, opened_by, opening_balance, withdraw_total,
   deposit_total, closing_balance, month_name, report_year
-) VALUES (%s, TO_DATE(%s), %s, %s, %s, %s, %s, %s, TO_DATE('2016-06-01'),
+) VALUES (%s, TO_DATE(%s), %s, %s, %s, %s, %s, TO_DATE('2016-06-01'),
   TO_DATE('2016-07-01'), 'Smijith Kumaran', 4913.67, 2286.00, 0.00,
   2627.67, 'June', 2016)
 """,
