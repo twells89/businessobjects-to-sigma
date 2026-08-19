@@ -340,7 +340,7 @@ def main() -> int:
                 cursor.execute(view)
 
             cursor.execute(
-                "SELECT COUNT(*) AS rows, COUNT(DISTINCT customer_id) AS customers, "
+                "SELECT COUNT(*) AS row_count, COUNT(DISTINCT customer_id) AS customers, "
                 "ROUND(SUM(balance), 2) AS balance "
                 "FROM customer_statement_rows"
             )
