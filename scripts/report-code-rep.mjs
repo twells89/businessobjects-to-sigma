@@ -237,7 +237,7 @@ export function normalizeReportForComparison(spec) {
     config: doc.config,
     pages: sortById(doc.pages),
     panels: sortById(doc.panels),
-    elements: sortById(doc.elements),
+    elements: sortById(doc.elements).map(normalizeElement),
     layout: String(doc.layout || '').replace(/\s+/g, ' ').trim(),
   };
 }
@@ -303,6 +303,49 @@ function xml(value) {
 function sortById(value) {
   return [...(Array.isArray(value) ? value : [])]
     .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+}
+
+function normalizeElement(value) {
+  const element = { ...value };
+  if (typeof element.body === 'string') element.body = normalizeMarkdown(element.body);
+  if (Array.isArray(element.columns)) {
+    element.columns = sortById(element.columns).map(column => ({
+      ...column,
+      ...(typeof column.formula === 'string'
+        ? { formula: normalizeFormulaReferences(column.formula) }
+        : {}),
+    }));
+  }
+  const hiddenIds = new Set(
+    (element.columns || []).filter(column => column.hidden).map(column => column.id),
+  );
+  if (Array.isArray(element.order)) {
+    element.order = element.order.filter(id => !hiddenIds.has(id));
+  }
+  if (Array.isArray(element.sort)) {
+    element.sort = element.sort.map(item => {
+      if (item.nulls !== 'connection-default') return item;
+      const { nulls, ...rest } = item;
+      return rest;
+    });
+  }
+  return element;
+}
+
+function normalizeFormulaReferences(formula) {
+  return formula.replace(/\[([^/\]]+)\/([^\]]+)\]/g, (_, source, column) =>
+    `[${normalizeReferencePart(source)}/${normalizeReferencePart(column)}]`);
+}
+
+function normalizeReferencePart(value) {
+  return String(value).trim().replace(/[\s_]+/g, '_').toUpperCase();
+}
+
+function normalizeMarkdown(value) {
+  return String(value)
+    .replace(/\*\*(<span\b[^>]*>)([\s\S]*?)(<\/span>)\*\*/gi, '$1**$2**$3')
+    .replace(/ {2,}\n|\\\n/g, '\n')
+    .replace(/\n{2,}/g, '\n');
 }
 
 function isObject(value) {

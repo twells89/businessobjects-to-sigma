@@ -73,6 +73,49 @@ check(!validateReportSpec(duplicate).valid, 'duplicate IDs rejected');
 
 const normalized = normalizeReportForComparison(report);
 check(normalized.elements[0].id === 'head-text' && normalized.elements[1].id === 'title', 'comparison normalization sorts IDs');
+const submittedVariant = {
+  document: {
+    ...report.document,
+    elements: [{
+      id: 'table',
+      kind: 'table',
+      columns: [
+        { id: 'hidden', formula: '[SOURCE/CUSTOMER_ID]', hidden: true },
+        { id: 'visible', formula: 'Sum([SOURCE/USD_BALANCE])' },
+      ],
+      order: ['visible'],
+      sort: [{ columnId: 'visible', direction: 'ascending' }],
+    }, {
+      id: 'text',
+      kind: 'text',
+      body: '**<span style="color: red">Heading</span>**  \nDetail',
+    }],
+  },
+};
+const readbackVariant = {
+  document: {
+    ...report.document,
+    elements: [{
+      id: 'text',
+      kind: 'text',
+      body: '<span style="color: red">**Heading**</span>\\\nDetail',
+    }, {
+      id: 'table',
+      kind: 'table',
+      columns: [
+        { id: 'visible', formula: 'Sum([SOURCE/Usd Balance])' },
+        { id: 'hidden', formula: '[SOURCE/Customer Id]', hidden: true },
+      ],
+      order: ['visible', 'hidden'],
+      sort: [{ columnId: 'visible', direction: 'ascending', nulls: 'connection-default' }],
+    }],
+  },
+};
+check(
+  JSON.stringify(normalizeReportForComparison(submittedVariant))
+    === JSON.stringify(normalizeReportForComparison(readbackVariant)),
+  'comparison normalization accepts Sigma canonical readback rewrites',
+);
 
 console.log(failures ? `\n❌ ${failures} report code-rep check(s) failed` : '\n✅ all report code-rep checks passed');
 process.exit(failures ? 1 : 0);
