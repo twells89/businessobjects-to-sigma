@@ -2,6 +2,8 @@ node_modules/
 .bo_env
 .bo-state.json
 inventory.json
+artifacts/
+snapshots/
 *.log
 .DS_Store
 artifacts/

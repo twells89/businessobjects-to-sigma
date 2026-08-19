@@ -8,7 +8,12 @@
  */
 import { writeFileSync } from 'node:fs';
 import {
-  logon, listUniverses, listWebiDocuments, listCrystalReports, cmsQuery,
+  logon,
+  listUniversesDetailed,
+  listWebiDocumentsDetailed,
+  listCrystalReports,
+  cmsQuery,
+  BO_BASE,
 } from './bo-rws.mjs';
 
 const name = o => o.name || o.cuid || o.id;
@@ -19,9 +24,11 @@ async function main() {
 
   // Prefer the typed SL/Raylight lists; fall back to a CMS query if either is empty.
   let universes = [];
-  try { universes = await listUniverses(); } catch (e) { console.warn('universe list:', e.message); }
+  let universePages = 0;
+  try { const result = await listUniversesDetailed(); universes = result.items; universePages = result.pages; } catch (e) { console.warn('universe list:', e.message); }
   let webi = [];
-  try { webi = await listWebiDocuments(); } catch (e) { console.warn('webi list:', e.message); }
+  let webiPages = 0;
+  try { const result = await listWebiDocumentsDetailed(); webi = result.items; webiPages = result.pages; } catch (e) { console.warn('webi list:', e.message); }
   let crystal = [];
   try { crystal = await listCrystalReports(); } catch (e) { console.warn('Crystal report list:', e.message); }
 
@@ -42,6 +49,8 @@ async function main() {
 
   const inventory = {
     generatedAt: new Date().toISOString(),
+    source: { baseUrl: BO_BASE },
+    pagination: { universePages, webiPages },
     universes: universes.map(u => ({ id: u.id, name: name(u) })),
     webiDocuments: webi.map(d => ({ id: d.id, name: name(d) })),
     crystalReports: crystal.map(report => ({

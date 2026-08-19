@@ -23,17 +23,25 @@
  *   review the "Remap … matched no universe table/column" warnings for typos.
  */
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { logon, getUniverse } from './bo-rws.mjs';
+import { logon, getUniverse, BO_BASE } from './bo-rws.mjs';
 import { postDataModel, getDataModelSpec } from './sigma.mjs';
 import { convertBobjToSigma } from '../converters/bobj.mjs';
+import { universePreflight, assertPublishable, applyWarningPolicy } from './preflight.mjs';
+import { writeConversionArtifacts } from './artifacts.mjs';
 
 const STATE = '.bo-state.json';
 
 async function main() {
   const args = process.argv.slice(2);
+  const dryRun = args.includes('--dry-run');
+  const failOnWarning = args.includes('--fail-on-warning');
+  const outIdx = args.indexOf('--out');
+  const requestedOutput = outIdx >= 0 ? args[outIdx + 1] : null;
   const fileIdx = args.indexOf('--file');
   const localFile = fileIdx >= 0 ? args[fileIdx + 1] : null;
   const universeId = args[0] && !args[0].startsWith('--') ? args[0] : null;
+  const sourceIdIdx = args.indexOf('--source-universe-id');
+  const sourceUniverseId = sourceIdIdx >= 0 ? args[sourceIdIdx + 1] : universeId;
   if (!universeId && !localFile) {
     console.error('Usage: node scripts/migrate-universe.mjs <universeId> [--remap <remap.json>]');
     console.error('   or: node scripts/migrate-universe.mjs --file <universe.xml|.json> [--remap <remap.json>]');
@@ -53,15 +61,17 @@ async function main() {
 
   // Universe source: a local SL-SDK/IDT export file (no RWS), or RWS by id.
   // `universe` is a raw string here — convertBobjToSigma auto-detects XML vs JSON.
-  let universe, stateKey;
+  let universe, stateKey, stateStorageKey;
   if (localFile) {
     universe = readFileSync(localFile, 'utf8');
-    stateKey = localFile;
+    stateKey = sourceUniverseId || localFile;
+    stateStorageKey = sourceUniverseId && BO_BASE ? `${BO_BASE}::${sourceUniverseId}` : stateKey;
     console.log(`Converting local universe file ${localFile} (${universe.trimStart().startsWith('<') ? 'SL-SDK/IDT XML' : 'JSON'}) — no RWS login.`);
   } else {
     await logon();
     universe = await getUniverse(universeId);
     stateKey = universeId;
+    stateStorageKey = `${BO_BASE}::${universeId}`;
   }
 
   const result = convertBobjToSigma(universe, {
@@ -73,6 +83,30 @@ async function main() {
   });
   console.log('Converted universe →', JSON.stringify(result.stats));
   result.warnings.forEach(w => console.log('  ⚠', w));
+
+  const preflight = applyWarningPolicy(universePreflight(universe, result, {
+    connectionId: process.env.SIGMA_CONNECTION_ID,
+    requireTargetConnection: true,
+    sourceUniverseId,
+    requireSourceUniverseId: !!localFile,
+  }), failOnWarning);
+  console.log('Preflight →', preflight.verdict);
+  preflight.blockers.forEach(item => console.log(`  BLOCK ${item.code}: ${item.message}`));
+  const artifactDir = requestedOutput || (dryRun ? `artifacts/universe-${String(stateKey).replace(/[^a-z0-9_.-]+/gi, '-')}` : null);
+  if (artifactDir) {
+    writeConversionArtifacts(artifactDir, {
+      source: { stateKey, input: universe },
+      conversion: result,
+      preflight,
+    });
+    console.log('Wrote conversion artifacts:', artifactDir);
+  }
+  if (dryRun) {
+    console.log('Dry run complete; nothing was posted to Sigma.');
+    if (preflight.blockers.length) process.exitCode = 2;
+    return;
+  }
+  assertPublishable(preflight, 'Universe');
 
   const dataModelId = await postDataModel(result.model);
   console.log('Data model created:', dataModelId);
@@ -86,7 +120,9 @@ async function main() {
   for (const e of result.model.pages[0].elements) for (const m of (e.metrics || [])) measureMap[m.name] = m.formula;
 
   const state = existsSync(STATE) ? JSON.parse(readFileSync(STATE, 'utf8')) : {};
-  state[stateKey] = {
+  state[stateStorageKey] = {
+    sourceBaseUrl: localFile ? null : BO_BASE,
+    sourceUniverseId,
     dataModelId,
     viewElementId: view?.id || null,
     sourceName: view?.name || null,

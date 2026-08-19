@@ -8,6 +8,7 @@ BO_BASE_URL=https://your-bo-server:6405/biprws
 BO_USER=Administrator
 BO_PASSWORD=changeme
 BO_AUTH=secEnterprise          # secEnterprise | secLDAP | secWinAD | secSAPR3
+BO_REQUEST_TIMEOUT_MS=30000    # per-request timeout; 401s relogon automatically
 
 # ── Sigma ────────────────────────────────────────────────────────────────────
 SIGMA_BASE_URL=https://aws-api.sigmacomputing.com
@@ -21,6 +22,7 @@ SIGMA_FOLDER_ID=               # target folder for created data models / workboo
 SIGMA_CONNECTION_ID=           # warehouse connection the universe's tables live on
 SIGMA_DATABASE=                # optional path override (else inferred per table)
 SIGMA_SCHEMA=                  # optional path override
+SIGMA_WORKBOOK_SCHEMA_VERSION= # optional dry-run override; defaults to 1
 
 # ── Crystal Reports extraction ───────────────────────────────────────────────
 # Loose .rpt on Windows: directory containing matching x64 CrystalDecisions DLLs.
