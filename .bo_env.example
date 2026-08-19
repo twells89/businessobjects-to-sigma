@@ -21,3 +21,28 @@ SIGMA_FOLDER_ID=               # target folder for created data models / workboo
 SIGMA_CONNECTION_ID=           # warehouse connection the universe's tables live on
 SIGMA_DATABASE=                # optional path override (else inferred per table)
 SIGMA_SCHEMA=                  # optional path override
+
+# ── Crystal Reports extraction ───────────────────────────────────────────────
+# Loose .rpt on Windows: directory containing matching x64 CrystalDecisions DLLs.
+CRYSTAL_SDK_DIR=
+# CMS/RAS extractor (BI Platform Java SDK jars + CMS host).
+BO_SDK_LIB=
+BO_CMS=
+# Linux smoke extraction only (rpt-rs executable).
+RPT_RS_BIN=
+
+# ── Snowflake sample seed (key-pair auth) ────────────────────────────────────
+SNOWFLAKE_ACCOUNT=
+SNOWFLAKE_USER=
+# Complete unencrypted PEM text, including BEGIN/END PRIVATE KEY lines.
+SNOWFLAKE_PRIVATE_KEY=
+SNOWFLAKE_WAREHOUSE=
+SNOWFLAKE_ROLE=
+
+# Isolated destination created by scripts/seed-crystal-snowflake.py.
+CRYSTAL_SNOWFLAKE_DATABASE=CRYSTAL_MIGRATION_DEMO
+CRYSTAL_SNOWFLAKE_SCHEMA=PUBLIC
+
+# Persistent report creation has no API cleanup. The E2E refuses to create
+# unless this is explicitly true and SIGMA_FOLDER_ID is approved.
+CRYSTAL_E2E_CREATE=false
