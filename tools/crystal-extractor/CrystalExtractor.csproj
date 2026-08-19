@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>CrystalExtractor</RootNamespace>
+    <AssemblyName>crystal-extractor</AssemblyName>
+  </PropertyGroup>
+
+  <!--
+    SAP does not publish the Crystal Reports for Visual Studio assemblies to
+    NuGet. Point CRYSTAL_SDK_DIR at the x64 SDK's managed assembly directory.
+    Keeping HintPaths external avoids redistributing SAP binaries.
+  -->
+  <ItemGroup>
+    <Reference Include="CrystalDecisions.CrystalReports.Engine">
+      <HintPath>$(CRYSTAL_SDK_DIR)\CrystalDecisions.CrystalReports.Engine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="CrystalDecisions.Shared">
+      <HintPath>$(CRYSTAL_SDK_DIR)\CrystalDecisions.Shared.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="CrystalDecisions.ReportAppServer.ClientDoc">
+      <HintPath>$(CRYSTAL_SDK_DIR)\CrystalDecisions.ReportAppServer.ClientDoc.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="CrystalDecisions.ReportAppServer.Controllers">
+      <HintPath>$(CRYSTAL_SDK_DIR)\CrystalDecisions.ReportAppServer.Controllers.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="CrystalDecisions.ReportAppServer.DataDefModel">
+      <HintPath>$(CRYSTAL_SDK_DIR)\CrystalDecisions.ReportAppServer.DataDefModel.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="CrystalDecisions.ReportAppServer.ReportDefModel">
+      <HintPath>$(CRYSTAL_SDK_DIR)\CrystalDecisions.ReportAppServer.ReportDefModel.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="System.Web.Extensions" />
+  </ItemGroup>
+</Project>
