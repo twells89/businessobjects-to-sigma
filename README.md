@@ -224,6 +224,10 @@ node scripts/migrate-crystal.mjs --ir report.ir.json --create --pdf statement.pd
 # Crystal source/PDF visual oracle (MIT-licensed PettyCash sample)
 npm run e2e:crystal:pettycash                    # seed + verify, no create
 PETTYCASH_E2E_CREATE=true npm run e2e:crystal:pettycash
+
+# Crystal source/PDF/XML oracle with three subreports (MIT XML Résumé)
+npm run e2e:crystal:xmlresume
+XMLRESUME_E2E_CREATE=true npm run e2e:crystal:xmlresume
 ```
 
 The PettyCash gate downloads a pinned `.rpt` and the PDF exported from that
@@ -233,6 +237,12 @@ side by side under `artifacts/crystal/pettycash-e2e/`. Sigma report code-rep
 supports horizontal dividers but does not currently expose vertical divider
 orientation or table cell-spacing styles; those differences are recorded in
 the degradation ledger rather than silently claimed as pixel-identical.
+
+The XML Résumé gate adds deterministic XML seeding and three recursively
+extracted subreports flattened into independently queried Sigma data elements.
+See [the Crystal skill update report](docs/crystal-skill-update-report.md) for
+the resulting evidence matrix, live limitations, and proposed `SKILL.md`
+changes.
 
 Migrate a universe **before** the reports that use it — the workbook binds to the data model it produces.
 
