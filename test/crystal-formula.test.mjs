@@ -37,7 +37,7 @@ check(
 );
 
 result = formula('CCur({@Balance}) / {rates.rate_to_usd}');
-check(result.sigma === '[Balance] / [Rate To Usd]', `CCur cast removed → ${result.sigma}`);
+check(result.sigma === '[Balance] / [Rate to Usd]', `CCur cast removed → ${result.sigma}`);
 check(result.warnings.some(warning => /numeric cast removed/.test(warning)), 'removed cast is surfaced');
 
 result = formula('"A" & Chr(13) & "B"');
