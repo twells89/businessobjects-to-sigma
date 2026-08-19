@@ -73,6 +73,16 @@ check(
   'Crystal page footer becomes a report footer panel',
 );
 check(
+  report.document.elements.filter(element => element.kind === 'divider').length === 12,
+  'Crystal metadata, detail, and totals boxes become divider frames',
+);
+check(
+  /elementId="pettycash-meta-left"[^>]+width="2"[^>]+height="112"/.test(
+    report.document.layout,
+  ),
+  'divider frames include vertical edges',
+);
+check(
   result.degradationLedger.some(
     item => item.disposition === 'reconstructed-public-oracle',
   ),

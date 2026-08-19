@@ -76,6 +76,7 @@ export function convertPettyCashToReport(ir, options = {}) {
     {
       id: 'pettycash-detail',
       kind: 'table',
+      name: '\u00a0',
       source,
       columns: [
         column(sourceTable, 'id', 'No.', 'ID'),
@@ -140,13 +141,31 @@ export function convertPettyCashToReport(ir, options = {}) {
     place(pageId, 'page', 'pettycash-opened-by', 536, 152, 208, 28),
     place(pageId, 'page', 'pettycash-opening-balance', 32, 208, 230, 28),
     place(pageId, 'page', 'pettycash-frozen-date', 536, 208, 208, 28),
-    place(pageId, 'page', 'pettycash-detail', 8, 248, 752, 616),
+    place(pageId, 'page', 'pettycash-detail', 8, 218, 752, 646),
     place(pageId, 'page', 'pettycash-withdraw-total', 24, 880, 240, 32),
     place(pageId, 'page', 'pettycash-deposit-total', 264, 880, 224, 32),
     place(pageId, 'page', 'pettycash-closing-balance', 512, 880, 232, 32),
     place(footerId, 'panel', 'pettycash-print-date', 14, 10, 180, 24),
     place(footerId, 'panel', 'pettycash-page-number', 696, 10, 96, 24),
   ];
+  const framePlacements = [
+    ['pettycash-meta-top', 8, 136, 752, 2],
+    ['pettycash-meta-bottom', 8, 246, 752, 2],
+    ['pettycash-meta-left', 8, 136, 2, 112],
+    ['pettycash-meta-right', 758, 136, 2, 112],
+    ['pettycash-detail-top', 8, 248, 752, 2],
+    ['pettycash-detail-bottom', 8, 864, 752, 2],
+    ['pettycash-detail-left', 8, 248, 2, 618],
+    ['pettycash-detail-right', 758, 248, 2, 618],
+    ['pettycash-totals-top', 8, 872, 752, 2],
+    ['pettycash-totals-bottom', 8, 920, 752, 2],
+    ['pettycash-totals-left', 8, 872, 2, 50],
+    ['pettycash-totals-right', 758, 872, 2, 50],
+  ];
+  for (const [id, x, y, width, height] of framePlacements) {
+    elements.push({ id, kind: 'divider' });
+    placements.push(place(pageId, 'page', id, x, y, width, height));
+  }
 
   const degradationLedger = [
     {
@@ -170,8 +189,8 @@ export function convertPettyCashToReport(ir, options = {}) {
     {
       sourceType: 'formatting',
       sourceId: 'boxes-and-lines',
-      disposition: 'table-chrome-fallback',
-      message: 'Crystal rectangle and line objects are approximated by Sigma table chrome.',
+      disposition: 'divider-frame',
+      message: 'Crystal rectangle and line objects are reconstructed with Sigma divider elements.',
     },
   ];
 
