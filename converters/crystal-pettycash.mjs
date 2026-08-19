@@ -46,12 +46,12 @@ export function convertPettyCashToReport(ir, options = {}) {
     {
       id: 'pettycash-logo',
       kind: 'text',
-      body: '# <span style="color: #188AE5">PettyCash</span><span style="color: #10C469">App</span>',
+      body: '## <span style="color: #188AE5">PettyCash</span><span style="color: #10C469">App</span>',
     },
     {
       id: 'pettycash-title',
       kind: 'text',
-      body: '### _Monthly Report - June2016_',
+      body: '**_Monthly Report - June2016_**',
     },
     {
       id: 'pettycash-opening-date',
@@ -61,22 +61,21 @@ export function convertPettyCashToReport(ir, options = {}) {
     {
       id: 'pettycash-opened-by',
       kind: 'text',
-      body: '**Opened By:** Smijith Kumaran',
+      body: '**Opend By:** Smijith Kumaran',
     },
     {
       id: 'pettycash-opening-balance',
       kind: 'text',
-      body: '**Opening Balance:** 4913.67',
+      body: '**Opening Balanace:** 4913.67',
     },
     {
       id: 'pettycash-frozen-date',
       kind: 'text',
-      body: '**Frozen Date:** 01/07/2016',
+      body: '**Freezed Date:** 01/07/2016',
     },
     {
       id: 'pettycash-detail',
       kind: 'table',
-      name: 'Monthly transactions',
       source,
       columns: [
         column(sourceTable, 'id', 'No.', 'ID'),
@@ -86,14 +85,14 @@ export function convertPettyCashToReport(ir, options = {}) {
         }),
         column(sourceTable, 'type', 'Type', 'TRANSACTION_TYPE'),
         column(sourceTable, 'receipt', 'Receipt No.', 'RECEIPT_NO'),
-        column(sourceTable, 'item', 'Item', 'ITEM_NAME'),
+        column(sourceTable, 'item', 'Item', 'ITEM_DISPLAY'),
         column(sourceTable, 'qty', 'Qty', 'QTY', {
           kind: 'number',
           formatString: ',.0f',
         }),
         column(sourceTable, 'price', 'Price', 'AMOUNT', {
           kind: 'number',
-          formatString: ',.2f',
+          formatString: '.2f',
         }),
       ],
       order: [
@@ -135,8 +134,8 @@ export function convertPettyCashToReport(ir, options = {}) {
   ];
 
   const placements = [
-    place(pageId, 'page', 'pettycash-logo', 240, 0, 288, 64),
-    place(pageId, 'page', 'pettycash-title', 224, 72, 296, 40),
+    place(pageId, 'page', 'pettycash-logo', 268, 10, 224, 56),
+    place(pageId, 'page', 'pettycash-title', 284, 72, 220, 32),
     place(pageId, 'page', 'pettycash-opening-date', 32, 152, 210, 28),
     place(pageId, 'page', 'pettycash-opened-by', 536, 152, 208, 28),
     place(pageId, 'page', 'pettycash-opening-balance', 32, 208, 230, 28),
@@ -145,8 +144,8 @@ export function convertPettyCashToReport(ir, options = {}) {
     place(pageId, 'page', 'pettycash-withdraw-total', 24, 880, 240, 32),
     place(pageId, 'page', 'pettycash-deposit-total', 264, 880, 224, 32),
     place(pageId, 'page', 'pettycash-closing-balance', 512, 880, 232, 32),
-    place(footerId, 'panel', 'pettycash-print-date', 24, 10, 180, 24),
-    place(footerId, 'panel', 'pettycash-page-number', 624, 10, 168, 24),
+    place(footerId, 'panel', 'pettycash-print-date', 14, 10, 180, 24),
+    place(footerId, 'panel', 'pettycash-page-number', 696, 10, 96, 24),
   ];
 
   const degradationLedger = [

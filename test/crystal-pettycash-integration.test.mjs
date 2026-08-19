@@ -58,6 +58,11 @@ check(
   'receipt identifiers remain text-backed source values',
 );
 check(
+  detail?.columns?.find(column => column.id === 'pettycash-col-item')
+    ?.formula === '[PETTYCASH_MONTHLY_REPORT_ROWS/ITEM_DISPLAY]',
+  'detail rows use the Crystal-width wrapped item display',
+);
+check(
   report.document.elements.some(
     element => element.id === 'pettycash-logo' && /PettyCash/.test(element.body),
   ),
