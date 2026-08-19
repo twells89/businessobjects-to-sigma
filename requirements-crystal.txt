@@ -1,0 +1,2 @@
+# Latest version installed/verified in the Cloud Agent on 2026-08-19.
+snowflake-connector-python==4.7.2
