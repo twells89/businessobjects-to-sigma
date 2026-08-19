@@ -123,4 +123,9 @@ export async function postWorkbook(workbook) {
 /** DELETE any Sigma file (data model or workbook) by id. */
 export async function deleteFile(id) { return req('DELETE', `/v2/files/${id}`, null, true); }
 
+/** Refresh warehouse metadata for a connection path (empty path = connection root). */
+export async function syncConnectionPath(connectionId, path = []) {
+  return req('POST', `/v2/connections/${connectionId}/sync`, { path });
+}
+
 export const SIGMA_BASE = BASE;

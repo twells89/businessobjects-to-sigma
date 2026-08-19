@@ -22,6 +22,7 @@ import {
   referenceReportSchemaVersion,
   verifyReport,
 } from './sigma-report.mjs';
+import { syncConnectionPath } from './sigma.mjs';
 
 const manifest = JSON.parse(
   readFileSync('fixtures/crystal/meridian-customer-statement.source.json', 'utf8'),
@@ -122,6 +123,15 @@ async function main() {
     '--schema',
     schema,
   ], { env: process.env });
+  for (const path of [
+    [],
+    [database],
+    [database, schema],
+    [database, schema, 'CUSTOMER_STATEMENT_ROWS'],
+  ]) {
+    await syncConnectionPath(connectionId, path);
+  }
+  console.log(`Synced Sigma source metadata: ${database}.${schema}.CUSTOMER_STATEMENT_ROWS`);
 
   const schemaVersion = await referenceReportSchemaVersion();
   const converted = convertCrystalToReport(ir, {
