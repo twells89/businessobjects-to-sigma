@@ -166,11 +166,18 @@ Fetches the Webi document, maps report tabs→pages, tables→tables, crosstabs�
 For `--target report`, the workbook remains the staging representation. A dry
 run stops before all persistent work and states the pending lifecycle. A
 non-dry run still requires explicit `--create`; it applies approved data-model
-additions, verifies/creates/reads back the workbook, posts
+additions, GETs the data model after PUT, verifies every added name/formula,
+resolves the View by stable source name, updates `.bo-state.json` if its
+server-assigned ID changed, rebuilds the workbook against that current binding,
+then verifies/creates/reads back the workbook and posts
 `/v2/workbooks/{id}/convertToReport` with name, destination, selected page IDs,
 description and format, saves every warning, GETs and validates/verifies the
 report when possible, compares generated page/element coverage, then exports
-the report PDF. Conversion page IDs always come from workbook readback (mapped
+the report PDF. Coverage preserves page order and compares element source,
+columns/formulas, filters, groupings, sorts, conditional formats, and
+chart/KPI bindings after server-ID remapping; only target-only defaults,
+hidden dependencies, and absolute-layout generation are excluded. Conversion
+page IDs always come from workbook readback (mapped
 by ordered source-page name when Sigma assigns new IDs). The irreversible
 report ID/URL and lifecycle status are saved immediately. Conversion can
 remove workbook-only interactions or put dependencies on a hidden page;
@@ -178,6 +185,18 @@ warnings leave the completed evidence in a nonzero/pending state unless
 `--accept-conversion-warnings` was explicitly approved. Material coverage
 losses remain blocking. A pending run has already created the report: recover
 its ID/URL from `lifecycle.json`; do not blindly rerun and create a duplicate.
+Resume only evidence and acceptance with:
+
+```bash
+node scripts/migrate-webi.mjs --resume-report-id <reportId> \
+  --out <original-artifact-dir> --accept-conversion-warnings
+```
+
+The resume path creates no workbook/report. It requires lifecycle, staging
+workbook readback, the saved conversion response, and warning evidence whose
+stable SHA-256 hash is bound to both resource IDs. It repeats report GET,
+validation/verify, full semantic coverage, and PDF export. If warnings exist,
+omitting `--accept-conversion-warnings` deliberately leaves the report pending.
 
 The preflight runs before data-model additions or workbook creation. It blocks
 an incomplete universe binding, missing reports/elements, multiple data
@@ -235,7 +254,8 @@ node scripts/migrate-crystal.mjs --ir report.crystal-ir.json --create --pdf repo
 node scripts/migrate-crystal.mjs --ir single-table-report.crystal-ir.json --target workbook
 # The previous command writes a stacked interactive draft + calls workbook /verify.
 node scripts/migrate-crystal.mjs --ir multi-table-report.crystal-ir.json --target workbook \
-  --source-table WIDE_REPORT_ROWS --database ANALYTICS --schema PUBLIC --create
+  --source-table WIDE_REPORT_ROWS --database ANALYTICS --schema PUBLIC \
+  --field-map crystal-wide-fields.json --create
 ```
 
 Persistent Crystal report or workbook creation requires `--create`. Report
@@ -267,14 +287,29 @@ for Crystal's eight-table join graph.
 Crystal→workbook reuses an explicit data-model binding when
 `--data-model-id`, `--data-model-element-id`, and `--source-name` are supplied;
 otherwise a single-table IR defaults to that table's database/schema/name. A
-multi-table IR requires an explicit wide `--source-table` path; it is never
-silently projected onto the demo table. IR fields and safely translated
-formulas become an ungrouped detail table. Groups/summaries require separate
-elements after grain review, and parameters with unknown domains are omitted
-rather than emitted as inert controls. The adapter emits flat current elements
-and a stacked grid layout. Physical pagination, repeat-header/footer panels,
-absolute twip geometry, section suppression/page breaks, multi-table join
-topology, and unsupported objects are recorded in the degradation ledger.
+multi-table IR requires an explicit wide `--source-table` path plus a complete
+`--field-map`, or a data-model mapping validated against the bound element's
+GET readback. Duplicate physical names are ambiguous and also require
+per-field mapping; never invent table-prefixed target aliases. Mapping JSON is
+keyed preferably by IR field id and maps to actual target column names:
+
+```json
+{
+  "customer-customer-id": "customer_customer_id",
+  "invoice-customer-id": "invoice_customer_id",
+  "invoice-amount-gross": "amount_gross"
+}
+```
+
+IR fields and safely translated row-level formulas become an ungrouped detail
+table. Fully translated aggregate/measure formulas are withheld and recorded
+until a grouped/KPI scope is validated. Groups/summaries likewise require
+separate elements after grain review, and parameters with unknown domains are
+omitted rather than emitted as inert controls. The adapter emits flat current
+elements and a stacked grid layout. Physical pagination,
+repeat-header/footer panels, absolute twip geometry, section suppression/page
+breaks, multi-table join topology, and unsupported objects are recorded in the
+degradation ledger.
 
 **Phase 4 — Verify and accept**
 

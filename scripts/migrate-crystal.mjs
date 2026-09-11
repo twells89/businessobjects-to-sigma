@@ -13,7 +13,12 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
-import { convertCrystalToReport, convertCrystalToWorkbook } from '../converters/crystal.mjs';
+import {
+  buildValidatedCrystalDataModelFieldMap,
+  convertCrystalToReport,
+  convertCrystalToWorkbook,
+  normalizeCrystalFieldMap,
+} from '../converters/crystal.mjs';
 import { normalizeReportForComparison, validateReportSpec } from './report-code-rep.mjs';
 import {
   assertReportReadback,
@@ -24,6 +29,7 @@ import {
 } from './sigma-report.mjs';
 import {
   assessWorkbookSemanticReadback,
+  getDataModelSpec,
   getWorkbookSpec,
   postWorkbook,
   referenceWorkbookSchemaVersion,
@@ -35,7 +41,7 @@ import { isDirectRun, parseCliArgs } from './cli-args.mjs';
 const VALUE_FLAGS = [
   '--ir', '--target', '--pdf', '--artifacts', '--database', '--schema',
   '--source-table', '--name', '--data-model-id', '--data-model-element-id',
-  '--source-name',
+  '--source-name', '--field-map',
 ];
 const BOOLEAN_FLAGS = ['--create', '--dry-run', '--group-customers', '--help'];
 
@@ -60,7 +66,7 @@ async function main(argv = process.argv.slice(2)) {
   const cli = parseCrystalArgs(argv);
   const { value, has, irPath } = cli;
   if (has('--help') || !irPath) {
-    console.error('Usage: node scripts/migrate-crystal.mjs --ir report.ir.json [--target auto|report|workbook] [--create] [--pdf output.pdf]');
+    console.error('Usage: node scripts/migrate-crystal.mjs --ir report.ir.json [--target auto|report|workbook] [--field-map mapping.json] [--create] [--pdf output.pdf]');
     if (!has('--help')) process.exitCode = 2;
     return;
   }
@@ -77,6 +83,7 @@ async function main(argv = process.argv.slice(2)) {
     createRequested: create,
     dryRun,
     source: absoluteIr,
+    ...(value('--field-map') ? { fieldMapFile: resolve(value('--field-map')) } : {}),
   };
   const stem = basename(absoluteIr).replace(/(\.crystal-ir)?\.json$/i, '');
   const targetPath = resolve(outputDir, `${stem}.target.json`);
@@ -105,6 +112,10 @@ function reportConversionOptions(ir, absoluteIr, cli) {
 function workbookConversionOptions(ir, absoluteIr, cli) {
   const { value } = cli;
   const explicitSourceTable = value('--source-table');
+  const fieldMapFile = value('--field-map');
+  const fieldMap = fieldMapFile
+    ? normalizeCrystalFieldMap(JSON.parse(readFileSync(resolve(fieldMapFile), 'utf8')))
+    : {};
   return {
     folderId: process.env.SIGMA_FOLDER_ID,
     connectionId: process.env.SIGMA_CONNECTION_ID,
@@ -118,6 +129,7 @@ function workbookConversionOptions(ir, absoluteIr, cli) {
     dataModelId: value('--data-model-id'),
     dataModelElementId: value('--data-model-element-id'),
     sourceName: value('--source-name'),
+    fieldMap,
   };
 }
 
@@ -182,11 +194,26 @@ async function migrateReport({
 async function migrateWorkbook({
   ir, absoluteIr, outputDir, stem, targetPath, dryRun, create, cli,
 }) {
+  const conversionOptions = workbookConversionOptions(ir, absoluteIr, cli);
+  if (conversionOptions.dataModelId && !dryRun) {
+    const dataModelSpec = await getDataModelSpec(conversionOptions.dataModelId);
+    const validatedMapping = buildValidatedCrystalDataModelFieldMap(ir, dataModelSpec, {
+      dataModelElementId: conversionOptions.dataModelElementId,
+      sourceName: conversionOptions.sourceName,
+      fieldMap: conversionOptions.fieldMap,
+    });
+    conversionOptions.fieldMap = validatedMapping.fieldMap;
+    conversionOptions.dataModelElementId = validatedMapping.dataModelElementId;
+    writeFileSync(
+      resolve(outputDir, `${stem}.data-model-field-map.json`),
+      JSON.stringify(validatedMapping, null, 2),
+    );
+  }
   const schemaVersion = dryRun
     ? Number(process.env.SIGMA_WORKBOOK_SCHEMA_VERSION || 1)
     : await referenceWorkbookSchemaVersion();
   const result = convertCrystalToWorkbook(ir, {
-    ...workbookConversionOptions(ir, absoluteIr, cli),
+    ...conversionOptions,
     schemaVersion,
   });
   const specPath = resolve(outputDir, `${stem}.sigma-workbook.json`);

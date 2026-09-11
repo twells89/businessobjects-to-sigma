@@ -62,11 +62,29 @@ and the public Meridian proof, but is not the production extraction contract.
   evaluation, images/subreports and unsupported objects remain explicit in a
   machine-readable degradation ledger
 - `--target workbook` emits a responsive first draft with source-bound IR
-  fields and safely translatable formulas. The detail table stays ungrouped;
+  fields and safely translatable row-level formulas. Fully translated aggregate
+  formulas are still withheld from the ungrouped detail table until a grouped
+  table/KPI scope is validated. The detail table stays ungrouped;
   groups/summaries require separate-element redesign, and parameters with
   unknown domains are omitted rather than emitted as inert controls. Fixed
   pagination, repeating panels, absolute geometry, selection scope, and
   unsupported objects are recorded as degradations.
+
+For Crystal workbook source binding, a single-table IR defaults to that
+table's own database/schema/name. Multi-table IR and ambiguous duplicate
+physical fields require `--field-map <json>` with one target column per IR
+field, unless an explicit data-model binding can be mapped and validated
+against its GET readback. The converter never invents table-prefixed aliases.
+Prefer stable IR field ids as keys; the file may be a direct object or contain
+`fieldMap`:
+
+```json
+{
+  "customer-customer-id": "customer_customer_id",
+  "invoice-customer-id": "invoice_customer_id",
+  "invoice-amount-gross": "amount_gross"
+}
+```
 
 ### Target selection and persistence
 
@@ -80,10 +98,23 @@ Sigma request. For Webi→report it explains the pending workbook
 verify/create/readback → `convertToReport` → report readback/verify/PDF sequence.
 The persistent path remaps submitted page IDs from workbook readback, saves the
 report ID/URL immediately in `lifecycle.json`, compares generated report
-page/element coverage, and completes PDF evidence before returning
+page order plus source/formula/filter/grouping/sort/conditional-format/chart
+binding coverage after ID remapping, and completes PDF evidence before returning
 nonzero/pending for unaccepted conversion warnings or material losses.
 Pending means the report already exists; recover it from `lifecycle.json`
-rather than rerunning and unintentionally creating a duplicate.
+rather than rerunning and unintentionally creating a duplicate. Resume only
+the evidence/acceptance stage with:
+
+```bash
+node scripts/migrate-webi.mjs --resume-report-id <reportId> \
+  --out artifacts/webi-<source> --accept-conversion-warnings
+```
+
+Resume verifies the saved conversion response and warning list against the
+report/workbook-bound SHA-256 evidence, then repeats report GET,
+validation/verify, semantic coverage, PDF export, and acceptance. It never
+creates a workbook or report. Warning-bearing output still requires the
+explicit acceptance flag.
 
 ### Webi input: live documents, not `.wid` files
 
@@ -269,6 +300,8 @@ node scripts/migrate-webi.mjs <docId> --universe <universeId> --target report --
 node scripts/migrate-webi.mjs <docId> --universe <universeId> --target report --create --page-size a4 --layout landscape --pdf webi-report.pdf
 # Only for a conversion whose warning policy was explicitly pre-approved:
 node scripts/migrate-webi.mjs <docId> --universe <universeId> --target report --create --accept-conversion-warnings
+# Recover an existing pending report without another conversion:
+node scripts/migrate-webi.mjs --resume-report-id <reportId> --out artifacts/webi-<source> --accept-conversion-warnings
 
 # Public Crystal proof
 python3 scripts/seed-crystal-snowflake.py             # isolated synthetic data + wide view
@@ -277,7 +310,8 @@ node scripts/migrate-crystal.mjs --ir report.ir.json # offline + Sigma /verify, 
 node scripts/migrate-crystal.mjs --ir report.ir.json --create --pdf statement.pdf
 node scripts/migrate-crystal.mjs --ir single-table-report.ir.json --target workbook # uses that table's IR path
 node scripts/migrate-crystal.mjs --ir multi-table-report.ir.json --target workbook \
-  --source-table WIDE_REPORT_ROWS --database ANALYTICS --schema PUBLIC --create
+  --source-table WIDE_REPORT_ROWS --database ANALYTICS --schema PUBLIC \
+  --field-map crystal-wide-fields.json --create
 
 # Crystal source/PDF visual oracle (MIT-licensed PettyCash sample)
 npm run e2e:crystal:pettycash                    # seed + verify, no create
@@ -331,6 +365,10 @@ new report and currently has no cleanup path in this project.
 
 State keys are qualified by `BO_BASE_URL`, preventing identical universe IDs on
 different BO hosts from sharing a Sigma binding.
+When Webi variables add data-model calculations, migration PUTs the model,
+GETs it back, verifies each added name/formula, resolves the View by its stable
+source name, updates `.bo-state.json` if Sigma reassigned the element ID, and
+rebuilds the workbook before verify/create.
 When converting a local SDK/IDT export, pass `--source-universe-id <id>` so the
 saved binding can be verified against the Webi data provider and reused by the
 later `--universe <id>` command.

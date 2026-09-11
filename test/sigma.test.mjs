@@ -276,6 +276,52 @@ check(
   converted.warnings[0]?.code === 'UNSUPPORTED_ACTION',
   'workbook-to-report conversion preserves warning objects',
 );
+const warningEvidence = reports.createConversionWarningEvidence(converted.warnings, {
+  workbookId,
+  reportId: converted.reportId,
+});
+check(
+  reports.verifyConversionWarningEvidence(
+    warningEvidence,
+    converted.result,
+    { workbookId, reportId: converted.reportId },
+  ).valid
+    && warningEvidence.hash.length === 64,
+  'conversion warning evidence has a stable verified SHA-256 checksum',
+);
+const reorderedWarningResult = structuredClone(converted.result);
+reorderedWarningResult.warnings = [{
+  details: { elementId: 'button-1' },
+  code: 'UNSUPPORTED_ACTION',
+}];
+check(
+  reports.verifyConversionWarningEvidence(
+    warningEvidence,
+    reorderedWarningResult,
+    { workbookId, reportId: converted.reportId },
+  ).valid,
+  'warning evidence hash is independent of object key insertion order',
+);
+try {
+  reports.verifyConversionWarningEvidence(
+    { ...warningEvidence, warnings: [{ code: 'EDITED' }] },
+    converted.result,
+    { workbookId, reportId: converted.reportId },
+  );
+  check(false, 'edited warning evidence is rejected');
+} catch (error) {
+  check(/checksum\/count/.test(error.message), 'edited warning evidence is rejected');
+}
+try {
+  reports.verifyConversionWarningEvidence(
+    warningEvidence,
+    converted.result,
+    { workbookId, reportId: 'different-report' },
+  );
+  check(false, 'warning evidence cannot be reused for another report');
+} catch (error) {
+  check(/different workbook\/report ids/.test(error.message), 'warning evidence cannot be reused for another report');
+}
 const convertRequest = requests.at(-1);
 check(
   JSON.stringify(convertRequest.body) === JSON.stringify({
@@ -317,6 +363,110 @@ check(
   !reports.assessConvertedReportCoverage(workbook, reportWithLoss).valid,
   'generated report coverage gates material element loss',
 );
+
+const intentWorkbook = {
+  name: 'Intent workbook',
+  folderId: 'folder',
+  schemaVersion: 2,
+  kind: 'workbook',
+  pages: [{
+    id: 'intent-page-a',
+    name: 'A',
+    elements: [{
+      id: 'intent-chart',
+      kind: 'kpi-chart',
+      name: 'Intent KPI',
+      source: { kind: 'data-model', dataModelId: 'dm', elementId: 'view' },
+      columns: [
+        { id: 'intent-dimension', name: 'Region', formula: '[View/Region]' },
+        { id: 'intent-value', name: 'Revenue', formula: 'Sum([View/Revenue])' },
+      ],
+      order: ['intent-dimension', 'intent-value'],
+      filters: [{ columnId: 'intent-dimension', condition: '=', value: 'West' }],
+      groupings: [{
+        id: 'intent-group',
+        groupBy: ['intent-dimension'],
+        calculations: ['intent-value'],
+        sort: [{ columnId: 'intent-value', direction: 'descending' }],
+      }],
+      sort: [{ columnId: 'intent-dimension', direction: 'ascending' }],
+      conditionalFormats: [{
+        type: 'single',
+        columnIds: ['intent-value'],
+        condition: '>',
+        value: 100,
+        style: { color: '#008000' },
+      }],
+      value: { columnId: 'intent-value' },
+      xAxis: { columnId: 'intent-dimension' },
+      yAxis: { columnIds: ['intent-value'] },
+    }],
+  }, {
+    id: 'intent-page-b',
+    name: 'B',
+    elements: [{ id: 'intent-text', kind: 'text', body: 'Second page' }],
+  }],
+};
+const intentPrepared = prepareWorkbookForPost(intentWorkbook);
+const intentReport = {
+  name: 'Intent report',
+  folderId: 'folder',
+  document: {
+    schemaVersion: 1,
+    kind: 'report',
+    config: { pageWidth: 816, pageHeight: 1056, margin: 48 },
+    pages: [
+      { id: 'report-page-a', name: 'A' },
+      { id: 'report-page-b', name: 'B' },
+    ],
+    panels: [],
+    elements: JSON.parse(JSON.stringify(intentPrepared.document.elements)
+      .replaceAll('intent-chart', 'report-chart')
+      .replaceAll('intent-text', 'report-text')
+      .replaceAll('intent-dimension', 'report-dimension')
+      .replaceAll('intent-value', 'report-value')
+      .replaceAll('intent-group', 'report-group')),
+    layout: [
+      '<Page id="report-page-a"><Element elementId="report-chart" x="0" y="0" width="700" height="500"/></Page>',
+      '<Page id="report-page-b"><Element elementId="report-text" x="0" y="0" width="700" height="50"/></Page>',
+    ].join(''),
+  },
+};
+check(
+  reports.assessConvertedReportCoverage(intentWorkbook, intentReport).valid,
+  'generated report coverage remaps IDs across full semantic intent',
+);
+for (const [label, mutate] of [
+  ['source', report => { report.document.elements[0].source.elementId = 'other-view'; }],
+  ['column formula', report => { report.document.elements[0].columns[1].formula = '0'; }],
+  ['filters', report => { report.document.elements[0].filters[0].value = 'East'; }],
+  ['groupings', report => { report.document.elements[0].groupings[0].calculations = []; }],
+  ['sorts', report => { report.document.elements[0].sort[0].direction = 'descending'; }],
+  ['conditional formats', report => {
+    report.document.elements[0].conditionalFormats[0].condition = '<';
+  }],
+  ['chart/KPI bindings', report => {
+    report.document.elements[0].value.columnId = 'report-dimension';
+  }],
+]) {
+  const changed = structuredClone(intentReport);
+  mutate(changed);
+  check(
+    !reports.assessConvertedReportCoverage(intentWorkbook, changed).valid,
+    `generated report coverage detects changed ${label}`,
+  );
+}
+const reorderedReportPages = structuredClone(intentReport);
+reorderedReportPages.document.pages.reverse();
+reorderedReportPages.document.layout = [
+  '<Page id="report-page-b"><Element elementId="report-text"/></Page>',
+  '<Page id="report-page-a"><Element elementId="report-chart"/></Page>',
+].join('');
+check(
+  reports.assessConvertedReportCoverage(intentWorkbook, reorderedReportPages)
+    .materialLosses.some(loss => loss.type === 'page-order-changed'),
+  'generated report coverage detects source-page order changes',
+);
 check(
   !reports.evaluateConvertedReportAcceptance({
     warnings: converted.warnings,
@@ -339,6 +489,13 @@ check(
     coverage: { valid: false, materialLosses: [{ type: 'element-dropped' }] },
   }).accepted,
   'material report coverage loss remains blocking despite warning acceptance',
+);
+check(
+  !reports.evaluateConvertedReportAcceptance({
+    warnings: [],
+    acceptWarnings: true,
+  }).accepted,
+  'report acceptance requires coverage evidence',
 );
 
 console.log(failures ? `\n❌ ${failures} Sigma lifecycle check(s) failed` : '\n✅ all Sigma lifecycle checks passed');

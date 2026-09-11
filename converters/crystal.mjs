@@ -288,6 +288,95 @@ export function convertCrystalToReport(ir, options = {}) {
  * while recording controls, groups, summaries, and fixed-page behavior in the
  * degradation ledger until they can be rebuilt without changing grain.
  */
+export function normalizeCrystalFieldMap(input) {
+  const source = input?.fieldMap && typeof input.fieldMap === 'object'
+    ? input.fieldMap
+    : input;
+  if (source == null) return {};
+  if (typeof source !== 'object' || Array.isArray(source)) {
+    throw new Error('Crystal field mapping must be a JSON object');
+  }
+  const result = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (!key.trim() || typeof value !== 'string' || !value.trim()) {
+      throw new Error('Crystal field mapping keys and target column names must be non-empty strings');
+    }
+    result[key] = value.trim();
+  }
+  return result;
+}
+
+/**
+ * Resolve every IR field against the actual columns of a read-back data-model
+ * element. Inference is exact-name-only and rejects target reuse, so this
+ * cannot invent table-prefixed aliases that do not exist in Sigma.
+ */
+export function buildValidatedCrystalDataModelFieldMap(
+  ir,
+  spec,
+  { dataModelElementId, sourceName, fieldMap = {} } = {},
+) {
+  if (!sourceName || !String(sourceName).trim()) {
+    throw new Error('Validated Crystal data-model mapping requires explicit sourceName');
+  }
+  if (!dataModelElementId || !String(dataModelElementId).trim()) {
+    throw new Error('Validated Crystal data-model mapping requires explicit dataModelElementId');
+  }
+  const elements = (spec?.pages || spec?.spec?.pages || [])
+    .flatMap(page => page?.elements || []);
+  const named = elements.filter(element => element?.name === String(sourceName).trim());
+  if (named.length !== 1) {
+    throw new Error(
+      `Expected exactly one data-model element named ${JSON.stringify(sourceName)}; found ${named.length}`,
+    );
+  }
+  const element = named[0];
+  const columns = Array.isArray(element.columns) ? element.columns : [];
+  const explicit = normalizeCrystalFieldMap(fieldMap);
+  const result = {};
+  const usedTargets = new Map();
+  const errors = [];
+  for (const field of ir?.data?.fields || []) {
+    const mapped = mappedCrystalFieldTarget(field, explicit);
+    const candidates = mapped
+      ? columns.filter(column => column?.name === mapped)
+      : columns.filter(column => crystalFieldCandidates(field)
+        .some(name => String(column?.name || '').toLowerCase() === name.toLowerCase()));
+    const unique = [...new Map(candidates.map(column => [column.name, column])).values()];
+    if (unique.length !== 1) {
+      errors.push(
+        `${field.id || qualifiedCrystalFieldName(field)} resolved to ${unique.length} `
+        + `data-model columns${mapped ? ` for explicit target ${JSON.stringify(mapped)}` : ''}`,
+      );
+      continue;
+    }
+    const target = unique[0].name;
+    const targetKey = target.toLowerCase();
+    if (usedTargets.has(targetKey)) {
+      errors.push(
+        `${field.id || qualifiedCrystalFieldName(field)} and ${usedTargets.get(targetKey)} `
+        + `both resolve to ${JSON.stringify(target)}`,
+      );
+      continue;
+    }
+    usedTargets.set(targetKey, field.id || qualifiedCrystalFieldName(field));
+    result[field.id || qualifiedCrystalFieldName(field)] = target;
+  }
+  if (errors.length) {
+    throw new Error(`Crystal data-model field mapping is ambiguous or incomplete: ${errors.join('; ')}`);
+  }
+  return {
+    fieldMap: result,
+    dataModelElementId: element.id,
+    previousDataModelElementId: dataModelElementId || null,
+    dataModelElementIdChanged: Boolean(
+      dataModelElementId && dataModelElementId !== element.id,
+    ),
+    sourceName: element.name,
+    validatedColumns: Object.keys(result).length,
+  };
+}
+
 export function convertCrystalToWorkbook(ir, options = {}) {
   if (!ir?.sections || !ir?.data) throw new Error('convertCrystalToWorkbook: expected Crystal IR');
   resetIds();
@@ -346,6 +435,7 @@ export function convertCrystalToWorkbook(ir, options = {}) {
     : { kind: 'warehouse-table', connectionId, path: [database, schema, sourceTable] };
   const qualifier = hasCompleteDataModelBinding ? explicitSourceName : sourceTable;
   const fields = ir.data.fields || [];
+  const explicitFieldMap = normalizeCrystalFieldMap(options.fieldMap);
   const duplicateNames = new Set();
   const counts = new Map();
   for (const field of fields) {
@@ -353,6 +443,29 @@ export function convertCrystalToWorkbook(ir, options = {}) {
     counts.set(key, (counts.get(key) || 0) + 1);
   }
   for (const [key, count] of counts) if (count > 1) duplicateNames.add(key);
+  const mappingRequired = tables.length > 1 || duplicateNames.size > 0;
+  if (mappingRequired) {
+    const missing = fields.filter(field => !mappedCrystalFieldTarget(field, explicitFieldMap));
+    if (missing.length) {
+      throw new Error(
+        'Crystal workbook multi-table or duplicate-name IR requires an explicit per-field mapping '
+        + `or validated data-model mapping; missing: ${missing
+          .map(field => field.id || qualifiedCrystalFieldName(field)).join(', ')}`,
+      );
+    }
+    const targetOwners = new Map();
+    for (const field of fields) {
+      const target = mappedCrystalFieldTarget(field, explicitFieldMap);
+      const targetKey = target.toLowerCase();
+      if (targetOwners.has(targetKey)) {
+        throw new Error(
+          `Crystal field mapping reuses target column ${JSON.stringify(target)} for `
+          + `${targetOwners.get(targetKey)} and ${field.id || qualifiedCrystalFieldName(field)}`,
+        );
+      }
+      targetOwners.set(targetKey, field.id || qualifiedCrystalFieldName(field));
+    }
+  }
 
   const usedIds = new Set();
   const makeId = (prefix, value) => {
@@ -374,7 +487,7 @@ export function convertCrystalToWorkbook(ir, options = {}) {
       ? `${sigmaDisplayName(field.table)} ${sigmaDisplayName(physical)}`
       : sigmaDisplayName(field.name || physical);
     const id = makeId('field', field.id || `${field.table}-${physical}`);
-    const targetColumn = dataModelId ? display : physical;
+    const targetColumn = mappedCrystalFieldTarget(field, explicitFieldMap) || physical;
     const column = {
       id,
       name: display,
@@ -407,7 +520,8 @@ export function convertCrystalToWorkbook(ir, options = {}) {
   }));
   const formulaNames = new Set(formulas.map((formula) => formula.name.toLowerCase()));
   const blockedFormulaNames = new Set(
-    formulas.filter((formula) => !formula.fullyTranslated || formula.parameters.length)
+    formulas.filter((formula) =>
+      !formula.fullyTranslated || formula.parameters.length || formula.kind === 'measure')
       .map((formula) => formula.name.toLowerCase()),
   );
   let propagated;
@@ -437,14 +551,19 @@ export function convertCrystalToWorkbook(ir, options = {}) {
       degradationLedger.push({
         sourceType: 'formula',
         sourceId: formula.name,
-        disposition: formula.parameters.length
-          ? 'not-emitted-unbound-parameter'
-          : 'not-emitted-unverified',
-        message: formula.parameters.length
-          ? `Formula depends on omitted parameter control(s): ${formula.parameters.join(', ')}.`
-          : blockedDependencies.length
-            ? `Formula depends on formula(s) that were not emitted safely: ${blockedDependencies.join(', ')}.`
-            : formula.warnings.join(' ') || 'Formula could not be translated safely.',
+        disposition: formula.kind === 'measure'
+          ? 'not-emitted-aggregate-detail-grain'
+          : formula.parameters.length
+            ? 'not-emitted-unbound-parameter'
+            : 'not-emitted-unverified',
+        message: formula.kind === 'measure'
+          ? 'Aggregate/measure formula was not added to the ungrouped detail table; '
+            + 'build it in a validated grouped table or KPI at the intended Crystal scope.'
+          : formula.parameters.length
+            ? `Formula depends on omitted parameter control(s): ${formula.parameters.join(', ')}.`
+            : blockedDependencies.length
+              ? `Formula depends on formula(s) that were not emitted safely: ${blockedDependencies.join(', ')}.`
+              : formula.warnings.join(' ') || 'Formula could not be translated safely.',
         source: formula.source,
       });
       continue;
@@ -639,6 +758,7 @@ export function convertCrystalToWorkbook(ir, options = {}) {
       elements: elements.length,
       fields: fieldColumns.length,
       formulas: formulaColumns.length,
+      withheldAggregateFormulas: formulas.filter(formula => formula.kind === 'measure').length,
       summaries: ir.data.summaries?.length || 0,
       emittedSummaries: 0,
       groups: ir.data.groups?.length || 0,
@@ -709,6 +829,31 @@ function fieldFormat(field) {
   if (/date|time/i.test(field.dataType || '')) return { format: dateFormat() };
   if (/currency|money/i.test(field.dataType || '')) return { format: moneyFormat('$') };
   return {};
+}
+
+function qualifiedCrystalFieldName(field) {
+  const physical = field?.physicalName || field?.name || field?.id || '';
+  return field?.table ? `${field.table}.${physical}` : physical;
+}
+
+function crystalFieldCandidates(field) {
+  return [...new Set([
+    field?.id,
+    qualifiedCrystalFieldName(field),
+    field?.table && field?.name ? `${field.table}.${field.name}` : null,
+    field?.name,
+    field?.physicalName,
+  ].filter(Boolean).map(String))];
+}
+
+function mappedCrystalFieldTarget(field, fieldMap) {
+  for (const key of crystalFieldCandidates(field)) {
+    if (Object.prototype.hasOwnProperty.call(fieldMap, key)) return fieldMap[key];
+    const insensitive = Object.keys(fieldMap)
+      .find(candidate => candidate.toLowerCase() === key.toLowerCase());
+    if (insensitive) return fieldMap[insensitive];
+  }
+  return null;
 }
 
 function clamp(value, min, max) {

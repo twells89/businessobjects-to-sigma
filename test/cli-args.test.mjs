@@ -20,9 +20,11 @@ parsed = parseCrystalArgs([
   '--target', 'workbook',
   'report.crystal-ir.json',
   '--source-table', 'WIDE_REPORT_ROWS',
+  '--field-map', 'wide-fields.json',
 ]);
 check(parsed.irPath === 'report.crystal-ir.json', 'explicit positional IR path is retained');
 check(parsed.value('--source-table') === 'WIDE_REPORT_ROWS', 'value flags retain their values');
+check(parsed.value('--field-map') === 'wide-fields.json', 'field-map option value is consumed');
 
 parsed = parseCrystalArgs([
   '--ir', 'explicit.json',

@@ -1,5 +1,8 @@
 import { readFileSync } from 'node:fs';
-import { convertCrystalToWorkbook } from '../converters/crystal.mjs';
+import {
+  buildValidatedCrystalDataModelFieldMap,
+  convertCrystalToWorkbook,
+} from '../converters/crystal.mjs';
 import {
   document,
   workbookElements,
@@ -14,6 +17,13 @@ function check(condition, message) {
 
 console.log('Crystal → Sigma workbook first draft');
 const ir = JSON.parse(readFileSync('fixtures/crystal/owned-customer-statement.ir.json', 'utf8'));
+const wideFieldMap = {
+  'customer-customer-id': 'customer_customer_id',
+  'customer-name': 'customer_name',
+  'invoice-invoice-id': 'invoice_id',
+  'invoice-customer-id': 'invoice_customer_id',
+  'invoice-amount-gross': 'amount_gross',
+};
 const result = convertCrystalToWorkbook(ir, {
   folderId: 'FOLDER',
   connectionId: 'CONNECTION',
@@ -21,6 +31,7 @@ const result = convertCrystalToWorkbook(ir, {
   schema: 'PUBLIC',
   sourceTable: 'CUSTOMER_STATEMENT_ROWS',
   sourceName: 'CUSTOMER_STATEMENT_ROWS',
+  fieldMap: wideFieldMap,
   schemaVersion: 2,
 });
 const workbook = result.workbook;
@@ -70,6 +81,7 @@ const parameterFormulaResult = convertCrystalToWorkbook(parameterFormulaIr, {
   database: 'CRYSTAL_MIGRATION_DEMO',
   schema: 'PUBLIC',
   sourceTable: 'CUSTOMER_STATEMENT_ROWS',
+  fieldMap: wideFieldMap,
 });
 const parameterFormulaTable = workbookElements(parameterFormulaResult.workbook)
   .find(element => element.kind === 'table');
@@ -107,6 +119,18 @@ try {
 
 try {
   convertCrystalToWorkbook(ir, {
+    connectionId: 'CONNECTION',
+    database: 'ANALYTICS',
+    schema: 'PUBLIC',
+    sourceTable: 'WIDE_REPORT_ROWS',
+  });
+  check(false, 'multi-table wide source rejects missing per-field map');
+} catch (error) {
+  check(/per-field mapping/.test(error.message), 'multi-table wide source rejects missing per-field map');
+}
+
+try {
+  convertCrystalToWorkbook(ir, {
     dataModelId: 'DM',
     dataModelElementId: 'ELEMENT',
   });
@@ -120,6 +144,7 @@ const dataModelResult = convertCrystalToWorkbook(ir, {
   dataModelId: 'DM',
   dataModelElementId: 'ELEMENT',
   sourceName: 'Crystal Wide View',
+  fieldMap: wideFieldMap,
 });
 const dataModelTable = workbookElements(dataModelResult.workbook)
   .find(element => element.kind === 'table');
@@ -128,6 +153,71 @@ check(
     && dataModelTable.source.dataModelId === 'DM'
     && dataModelTable.columns[0].formula.startsWith('[Crystal Wide View/'),
   'complete data-model binding supports multi-table IR with explicit sourceName',
+);
+
+const validatedMapping = buildValidatedCrystalDataModelFieldMap(ir, {
+  pages: [{
+    elements: [{
+      id: 'ELEMENT',
+      name: 'Crystal Wide View',
+      columns: Object.values(wideFieldMap).map((name, index) => ({
+        id: `dm-column-${index}`,
+        name,
+      })),
+    }],
+  }],
+}, {
+  dataModelElementId: 'ELEMENT',
+  sourceName: 'Crystal Wide View',
+  fieldMap: wideFieldMap,
+});
+check(
+  validatedMapping.validatedColumns === ir.data.fields.length
+    && validatedMapping.fieldMap['invoice-amount-gross'] === 'amount_gross',
+  'explicit data-model field map is validated against readback columns',
+);
+const inferredDataModelMapping = buildValidatedCrystalDataModelFieldMap(ir, {
+  pages: [{
+    elements: [{
+      id: 'ELEMENT',
+      name: 'Crystal Wide View',
+      columns: ir.data.fields.map((field, index) => ({
+        id: `dm-exact-${index}`,
+        name: field.id,
+      })),
+    }],
+  }],
+}, {
+  dataModelElementId: 'ELEMENT',
+  sourceName: 'Crystal Wide View',
+});
+check(
+  inferredDataModelMapping.fieldMap['invoice-amount-gross'] === 'invoice-amount-gross',
+  'exact unique data-model readback names provide a validated mapping without invented aliases',
+);
+
+const aggregateIr = structuredClone(ir);
+aggregateIr.data.formulas.push({
+  name: 'Invoice Total',
+  text: 'Sum({invoice.amount_gross})',
+  syntax: 'crystal',
+});
+const aggregateResult = convertCrystalToWorkbook(aggregateIr, {
+  folderId: 'FOLDER',
+  connectionId: 'CONNECTION',
+  database: 'ANALYTICS',
+  schema: 'PUBLIC',
+  sourceTable: 'WIDE_REPORT_ROWS',
+  fieldMap: wideFieldMap,
+});
+const aggregateTable = workbookElements(aggregateResult.workbook)
+  .find(element => element.kind === 'table');
+check(
+  !aggregateTable.columns.some(column => column.name === 'Invoice Total')
+    && aggregateResult.degradationLedger.some(item =>
+      item.sourceId === 'Invoice Total'
+      && item.disposition === 'not-emitted-aggregate-detail-grain'),
+  'aggregate formulas are not emitted into the ungrouped detail table',
 );
 
 const singleTableIr = structuredClone(ir);
