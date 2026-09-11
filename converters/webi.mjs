@@ -469,7 +469,7 @@ function blockToElement(block, src, measFormula, dimRef, warnings) {
     for (const m of meas) { const id = uid('v'); const nm = displayName(m); cols.push({ id, name: nm, formula: measFormula(m) }); valIds.push(id); colByName.set(nm, id); }
     if (!rowIds.length && !colIds_.length) warnings.push(`Crosstab "${block.title || ''}" has no row/column axis — verify.`);
     const el = { id: uid('pivot'), kind: 'pivot-table', name: block.title || 'Crosstab', source: src,
-      columns: cols, rowsBy: rowIds.map(id => ({ id })), columnsBy: colIds_.map(id => ({ id })), values: valIds };
+      columns: cols, rowsBy: rowIds.map(columnId => ({ columnId })), columnsBy: colIds_.map(columnId => ({ columnId })), values: valIds };
     buildConditionalFormats(block, el, colByName, warnings);
     return el;
   }

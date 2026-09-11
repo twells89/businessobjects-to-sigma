@@ -52,6 +52,10 @@ check(report.document.kind === 'report', 'prepare nests report document');
 check(report.name === 'R' && report.folderId === 'F', 'metadata stays outside document');
 check(reportDocument(report).elements.length === 2, 'document helper reads wrapped elements');
 check(Object.keys(reportMetadata(report)).sort().join(',') === 'folderId,name', 'metadata helper excludes document fields');
+check(
+  !('reportId' in prepareReportForPost({ ...report, reportId: 'server-id', createdAt: 'server-time' })),
+  'prepare strips server readback metadata from report verify/create bodies',
+);
 
 let validation = validateReportSpec(report);
 check(validation.valid, `valid report passes (${validation.errors.join('; ')})`);

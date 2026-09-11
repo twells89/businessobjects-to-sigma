@@ -359,6 +359,11 @@ check(r3cols.some(c => c.name === 'Bucket' && /If\(\[Order Fact View\/Revenue\] 
     alerters: [{ column: 'Net Revenue', operator: '>', value: 1000, style: { backgroundColor: '#0f0' } }] }]);
   const piv = rp.workbook.pages[0].elements.find(e => e.kind === 'pivot-table');
   check(Array.isArray(piv.conditionalFormats) && piv.conditionalFormats.length === 1, 'pivot gains conditionalFormats');
+  check(
+    piv.rowsBy?.every(pointer => pointer.columnId && !('id' in pointer))
+      && piv.columnsBy?.every(pointer => pointer.columnId && !('id' in pointer)),
+    'pivot rowsBy/columnsBy use {columnId} pointers',
+  );
 
   // between → warn + skip (no entry, no over-coloring)
   const rb = mk([{ kind: 'VTable', dimensions: ['Customer Region'], measures: ['Net Revenue'],

@@ -43,9 +43,11 @@ export function reportMetadata(spec) {
 
 export function prepareReportForPost(report) {
   if (!isObject(report)) throw new Error('prepareReportForPost: expected an object');
-  const metadata = reportMetadata(report);
+  const sourceMetadata = reportMetadata(report);
+  const metadata = {};
   for (const key of ['name', 'folderId', 'description']) {
-    if (report[key] != null && metadata[key] == null) metadata[key] = report[key];
+    const value = report[key] ?? sourceMetadata[key];
+    if (value != null) metadata[key] = value;
   }
   const document = { ...reportDocument(report) };
   document.kind ||= 'report';

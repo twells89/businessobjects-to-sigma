@@ -4,7 +4,12 @@
  * dataModelAdditions into a DM spec's View element.
  *   node test/dm-merge.test.mjs   (or npm test)
  */
-import { mergeAdditionsIntoView } from '../scripts/dm-merge.mjs';
+import {
+  assessDataModelAdditions,
+  mergeAdditionsIntoView,
+  resolveDataModelBindingAfterWrite,
+  resolveDataModelViewBySourceName,
+} from '../scripts/dm-merge.mjs';
 let failures = 0; const check = (c, m) => { console.log(`${c?'✅':'❌'} ${m}`); if (!c) failures++; };
 
 const spec = { pages: [{ elements: [ { id: 'VIEW', name: 'Order Fact View', columns: [{ id: 'c1', name: 'Net Revenue', formula: '[.../Net Revenue]' }], metrics: [] } ] }] };
@@ -14,6 +19,41 @@ const view = spec.pages[0].elements[0];
 check(view.metrics.some(m => m.name === 'Margin Pct'), 'new metric added to View');
 check(!view.metrics.some(m => m.name === 'Net Revenue'), 'metric duplicating an existing column name is skipped');
 check(res.skipped.includes('Net Revenue'), 'skip is reported');
+check(
+  resolveDataModelViewBySourceName(spec, 'Order Fact View').id === 'VIEW',
+  'View resolves by stable source name rather than saved id',
+);
+check(
+  assessDataModelAdditions(view, {
+    metrics: [{ name: 'Margin Pct', formula: 'X' }],
+    columns: [],
+  }).valid,
+  'post-PUT addition verification accepts matching names and formulas',
+);
+check(
+  !assessDataModelAdditions(view, {
+    metrics: [{ name: 'Margin Pct', formula: 'CHANGED' }],
+    columns: [],
+  }).valid,
+  'post-PUT addition verification rejects name-only formula collisions',
+);
+const reassignedReadback = structuredClone(spec);
+reassignedReadback.pages[0].elements[0].id = 'VIEW-SERVER-ID';
+check(
+  resolveDataModelViewBySourceName(reassignedReadback, 'Order Fact View').id === 'VIEW-SERVER-ID',
+  'post-PUT View readback resolves a reassigned id by stable source name',
+);
+const refreshed = resolveDataModelBindingAfterWrite(
+  reassignedReadback,
+  { dataModelId: 'DM', viewElementId: 'VIEW', sourceName: 'Order Fact View' },
+  { metrics: [{ name: 'Margin Pct', formula: 'X' }], columns: [] },
+);
+check(
+  refreshed.idChanged
+    && refreshed.binding.viewElementId === 'VIEW-SERVER-ID'
+    && refreshed.additionsVerdict.valid,
+  'post-PUT binding refresh verifies additions and returns the current View id',
+);
 
 // NESTED shape — some DM-spec GET responses wrap pages under `spec.spec.pages`
 // rather than a flat `spec.pages` (migrate-universe.mjs already hedges against

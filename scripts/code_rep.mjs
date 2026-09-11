@@ -21,6 +21,8 @@ export const DOC_KEYS = [
 ];
 
 export const LEGACY_THEME_KEYS = ['themeName', 'themeOverrides'];
+export const LEGACY_HORIZONTAL_ALIGN = { start: 'left', middle: 'center', end: 'right' };
+export const LEGACY_VERTICAL_ALIGN = { start: 'top', middle: 'center', end: 'bottom' };
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
@@ -52,6 +54,25 @@ function foldLegacyTheme(doc, source) {
   return out;
 }
 
+/** Set a workbook theme using the current settings.theme shape. */
+export function setTheme(doc, { name = null, overrides = null } = {}) {
+  const hasOv = isObj(overrides) && Object.keys(overrides).length > 0;
+  if (!name && !hasOv) return doc;
+  doc.settings = doc.settings || {};
+  doc.settings.theme = doc.settings.theme || {};
+  if (name) doc.settings.theme.name = name;
+  if (hasOv) {
+    doc.settings.theme.overrides = { ...(doc.settings.theme.overrides || {}), ...overrides };
+  }
+  return doc;
+}
+
+/** Read a workbook theme from either the current or legacy shape. */
+export function theme(spec) {
+  const value = (document(spec).settings || {}).theme || {};
+  return { name: value.name ?? null, overrides: value.overrides || {} };
+}
+
 export function metadata(response) {
   if (!isObj(response)) return {};
   return Object.fromEntries(
@@ -67,6 +88,45 @@ export function workbookElements(spec) {
   return (Array.isArray(doc.pages) ? doc.pages : [])
     .filter(isObj)
     .flatMap((page) => (Array.isArray(page.elements) ? page.elements.filter(isObj) : []));
+}
+
+/** Return layout membership as page id -> ordered unique element ids. */
+export function workbookPageElementIds(spec) {
+  const result = {};
+  const layout = String(document(spec).layout || '');
+  const pagePattern = /<Page\b[^>]*\bid="([^"]*)"[^>]*>(.*?)<\/Page>/gs;
+  for (const match of layout.matchAll(pagePattern)) {
+    result[match[1]] = [...new Set(
+      [...match[2].matchAll(
+        /<(?:Element|Container|TabbedContainer|LayoutElement|GridContainer)\b[^>]*\belementId="([^"]*)"/g,
+      )].map((element) => element[1]),
+    )];
+  }
+  return result;
+}
+
+/** Return element id -> page metadata, inferred from document.layout. */
+export function workbookPageByElement(spec) {
+  const doc = document(spec);
+  const pages = Array.isArray(doc.pages) ? doc.pages.filter(isObj) : [];
+  const pagesById = Object.fromEntries(
+    pages.filter((page) => page.id).map((page) => [page.id, page]),
+  );
+  const result = {};
+  for (const [pageId, elementIds] of Object.entries(workbookPageElementIds(doc))) {
+    const page = pagesById[pageId] || { id: pageId, name: pageId };
+    for (const elementId of elementIds) result[elementId] ||= page;
+  }
+  return result;
+}
+
+/** Return [element, page] pairs without re-nesting the wire representation. */
+export function workbookElementsWithPages(spec) {
+  const pageByElement = workbookPageByElement(spec);
+  return workbookElements(spec).map((element) => [
+    element,
+    pageByElement[element.id || element.elementId],
+  ]);
 }
 
 function flattenElements(doc) {
@@ -93,6 +153,48 @@ export function canonicalizeLayout(layoutXml) {
   return String(layoutXml || '')
     .replace(/<([/]?)LayoutElement\b/g, '<$1Element')
     .replace(/<([/]?)GridContainer\b/g, '<$1Container');
+}
+
+function canonicalizeElement(element) {
+  if (!isObj(element)) return element;
+  if (element.kind === 'text' && element.verticalAlign in LEGACY_VERTICAL_ALIGN) {
+    return { ...element, verticalAlign: LEGACY_VERTICAL_ALIGN[element.verticalAlign] };
+  }
+  if (element.kind === 'kpi-chart' && isObj(element.layout)) {
+    const layout = { ...element.layout };
+    if (layout.anchor in LEGACY_HORIZONTAL_ALIGN) {
+      layout.anchor = LEGACY_HORIZONTAL_ALIGN[layout.anchor];
+    }
+    if (layout.verticalAnchor in LEGACY_VERTICAL_ALIGN) {
+      layout.verticalAnchor = LEGACY_VERTICAL_ALIGN[layout.verticalAnchor];
+    }
+    return { ...element, layout };
+  }
+  if (element.kind === 'tabbed-container' && isObj(element.tabBar)
+      && element.tabBar.alignment in LEGACY_HORIZONTAL_ALIGN) {
+    return {
+      ...element,
+      tabBar: {
+        ...element.tabBar,
+        alignment: LEGACY_HORIZONTAL_ALIGN[element.tabBar.alignment],
+      },
+    };
+  }
+  if (element.kind === 'divider' && element.align in LEGACY_VERTICAL_ALIGN) {
+    const mapping = element.direction === 'vertical'
+      ? LEGACY_HORIZONTAL_ALIGN
+      : LEGACY_VERTICAL_ALIGN;
+    return { ...element, align: mapping[element.align] };
+  }
+  return element;
+}
+
+function canonicalizeOverlay(overlay) {
+  if (!isObj(overlay) || !isObj(overlay.drawer) || !('position' in overlay.drawer)) {
+    return overlay;
+  }
+  const { position: _removed, ...drawer } = overlay.drawer;
+  return { ...overlay, drawer };
 }
 
 /**
@@ -126,9 +228,17 @@ export function stackedLayout(pages, { rowSpan = 14, elementsByPageId = null } =
 
 export function wrap(doc, extra = {}) {
   const flattened = flattenElements(doc);
-  const canonical = isObj(flattened) && 'layout' in flattened
-    ? { ...flattened, layout: canonicalizeLayout(flattened.layout) }
-    : flattened;
+  let canonical = flattened;
+  if (isObj(flattened)) {
+    canonical = { ...flattened };
+    if (Array.isArray(flattened.elements)) {
+      canonical.elements = flattened.elements.map(canonicalizeElement);
+    }
+    if (Array.isArray(flattened.overlays)) {
+      canonical.overlays = flattened.overlays.map(canonicalizeOverlay);
+    }
+    if ('layout' in flattened) canonical.layout = canonicalizeLayout(flattened.layout);
+  }
   return { ...extra, document: canonical };
 }
 
