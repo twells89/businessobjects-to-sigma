@@ -6,6 +6,7 @@
 import {
   document, metadata, workbookElements, wrap,
   stackedLayout, prepareWorkbookForPost, canonicalizeLayout,
+  setTheme, theme, workbookElementsWithPages, workbookPageElementIds,
 } from '../scripts/code_rep.mjs';
 
 let failures = 0;
@@ -83,6 +84,63 @@ const posted = prepareWorkbookForPost(fromConverter);
 check(posted.document.elements.map(e => e.id).join(',') === 'k1,c1,t2', 'prepareWorkbookForPost: multi-page flatten preserves order');
 check((posted.document.layout.match(/<Page /g) || []).length === 2, 'prepareWorkbookForPost: layout has one <Page> per page');
 check(!/LayoutElement|GridContainer/.test(posted.document.layout), 'prepareWorkbookForPost: layout uses live Element/Container tags only');
+
+const legacyTheme = document({
+  schemaVersion: 1,
+  themeName: 'Legacy',
+  themeOverrides: { chart: { color: 'blue' } },
+  pages: [],
+});
+check(
+  legacyTheme.settings?.theme?.name === 'Legacy'
+    && legacyTheme.settings?.theme?.overrides?.chart?.color === 'blue'
+    && !('themeName' in legacyTheme),
+  'document() migrates legacy theme fields into settings.theme',
+);
+setTheme(legacyTheme, { name: 'Current', overrides: { text: { color: 'black' } } });
+check(
+  theme(legacyTheme).name === 'Current' && theme(legacyTheme).overrides.text.color === 'black',
+  'setTheme()/theme() use the current settings.theme shape',
+);
+
+const canonicalized = wrap({
+  schemaVersion: 1,
+  pages: [{ id: 'p' }],
+  elements: [
+    { id: 'text', kind: 'text', verticalAlign: 'middle' },
+    { id: 'kpi', kind: 'kpi-chart', layout: { anchor: 'end', verticalAnchor: 'start' } },
+    { id: 'tabs', kind: 'tabbed-container', tabBar: { alignment: 'middle' } },
+    { id: 'h-divider', kind: 'divider', direction: 'horizontal', align: 'end' },
+    { id: 'v-divider', kind: 'divider', direction: 'vertical', align: 'start' },
+  ],
+  overlays: [{ id: 'overlay', drawer: { position: 'right', width: 320 } }],
+  layout: '<Page id="p"><LayoutElement elementId="text"/><GridContainer elementId="tabs"/></Page>',
+});
+const element = id => canonicalized.document.elements.find(item => item.id === id);
+check(element('text').verticalAlign === 'center', 'text vertical alignment is canonicalized');
+check(
+  element('kpi').layout.anchor === 'right' && element('kpi').layout.verticalAnchor === 'top',
+  'KPI alignment aliases are canonicalized',
+);
+check(element('tabs').tabBar.alignment === 'center', 'tab alignment alias is canonicalized');
+check(
+  element('h-divider').align === 'bottom' && element('v-divider').align === 'left',
+  'divider alignment follows horizontal/vertical axis',
+);
+check(
+  !('position' in canonicalized.document.overlays[0].drawer)
+    && canonicalized.document.overlays[0].drawer.width === 320,
+  'removed overlay drawer.position is dropped without losing other drawer settings',
+);
+check(
+  workbookPageElementIds(canonicalized).p.join(',') === 'text,tabs',
+  'workbookPageElementIds() reads canonicalized layout membership',
+);
+check(
+  workbookElementsWithPages(canonicalized)
+    .filter(([item, page]) => ['text', 'tabs'].includes(item.id) && page?.id === 'p').length === 2,
+  'workbookElementsWithPages() associates flat elements with page metadata',
+);
 
 console.log(failures ? `\n❌ ${failures} check(s) failed` : '\n✅ all code_rep checks passed');
 process.exit(failures ? 1 : 0);

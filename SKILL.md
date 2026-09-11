@@ -1,17 +1,27 @@
 ---
 name: businessobjects-to-sigma
-description: Migrate SAP BusinessObjects to Sigma Computing. Converts universes into Sigma data models, Web Intelligence documents into workbooks, and Crystal Reports into pixel-perfect Sigma reports. Uses RWS for universes/Webi, SAP SDK or CMS/RAS for Crystal, and preserves unsupported constructs in explicit warnings/degradation ledgers. Use when inventorying or migrating a BO repository, universe, Webi document, or Crystal .rpt.
+description: Migrate SAP BusinessObjects to Sigma Computing. Converts universes into Sigma data models, Web Intelligence documents into workbooks or reports, and Crystal Reports into reports or interactive workbook drafts. Uses RWS for universes/Webi, SAP SDK or CMS/RAS for Crystal, and preserves unsupported constructs in explicit warnings/degradation ledgers. Use when inventorying or migrating a BO repository, universe, Webi document, or Crystal .rpt.
 ---
 
 # BusinessObjects → Sigma
 
-Three target resources:
+Source-aware targets:
 
 | BusinessObjects | Sigma | Converter |
 |---|---|---|
 | Universe (semantic layer) | Data model | `converters/bobj.mjs` (≡ MCP `convert_bobj_to_sigma`) |
-| Web Intelligence document | Workbook | `converters/webi.mjs` |
-| Crystal Report | Pixel-perfect report | `converters/crystal.mjs` |
+| Web Intelligence document | Workbook (default) or report | `converters/webi.mjs` + workbook conversion lifecycle |
+| Crystal Report | Report (default) or interactive workbook draft | `converters/crystal.mjs` |
+
+`--target auto` (or omission) keeps Webi→workbook and Crystal→report. The
+alternate targets are first drafts, not live parity claims:
+
+| Path | Persistence | Required review |
+|---|---|---|
+| Webi→workbook | Historical non-dry-run creation remains supported | verify/readback, warehouse parity, controls, RLS |
+| Webi→report | `--create` required; warnings remain pending unless `--accept-conversion-warnings` was explicitly approved | every conversion warning, workbook-ID remap, generated-report coverage, report readback/verify, PDF |
+| Crystal→report | `--create` required | degradation ledger, readback/query, Crystal-oracle PDF |
+| Crystal→workbook | `--create` required | responsive redesign of bands/pagination/panels, formulas/groups, parity/RLS |
 
 Universe/Webi use the **BI RESTful Web Service (RWS)** (or an SL-SDK/IDT
 universe export). Crystal definitions are separate: use the official Crystal
@@ -70,6 +80,10 @@ node scripts/migrate-universe.mjs --file universe.xml      # convert + POST (no 
 6. **Snowflake seed (public proof only).** Install
    `requirements-crystal.txt`; provide the five `SNOWFLAKE_*` key-pair
    variables from `.bo_env.example`.
+7. **Companion authoring skills.** Load current `sigma-data-models` and
+   `sigma-workbooks`; also load `sigma-reports` whenever target resolution
+   selects a report. Those skills are the source of truth for current Sigma
+   shapes and lifecycle gates.
 
 ## Workflow
 
@@ -143,8 +157,27 @@ The universe references the *old* physical table/column names. If the customer i
 node scripts/migrate-webi.mjs <docId> --universe <universeId> --dry-run --out artifacts/webi
 node scripts/migrate-webi.mjs --file snapshots/<host>/<docId>/normalized.json --universe <universeId> --dry-run
 node scripts/migrate-webi.mjs <docId> --universe <universeId>
+node scripts/migrate-webi.mjs <docId> --universe <universeId> --target report --dry-run
+node scripts/migrate-webi.mjs <docId> --universe <universeId> --target report \
+  --create --page-size a4 --layout landscape --pdf artifacts/webi/report.pdf
 ```
 Fetches the Webi document, maps report tabs→pages, tables→tables, crosstabs→pivot-tables, charts→bar/line/pie, measure cells→KPIs, filters→controls. Binds every element to the universe's View element and references columns **qualified by the source element name** (`[Order Fact View/Net Revenue]`) so nothing self-references. POSTs the workbook.
+
+For `--target report`, the workbook remains the staging representation. A dry
+run stops before all persistent work and states the pending lifecycle. A
+non-dry run still requires explicit `--create`; it applies approved data-model
+additions, verifies/creates/reads back the workbook, posts
+`/v2/workbooks/{id}/convertToReport` with name, destination, selected page IDs,
+description and format, saves every warning, GETs and validates/verifies the
+report when possible, compares generated page/element coverage, then exports
+the report PDF. Conversion page IDs always come from workbook readback (mapped
+by ordered source-page name when Sigma assigns new IDs). The irreversible
+report ID/URL and lifecycle status are saved immediately. Conversion can
+remove workbook-only interactions or put dependencies on a hidden page;
+warnings leave the completed evidence in a nonzero/pending state unless
+`--accept-conversion-warnings` was explicitly approved. Material coverage
+losses remain blocking. A pending run has already created the report: recover
+its ID/URL from `lifecycle.json`; do not blindly rerun and create a duplicate.
 
 The preflight runs before data-model additions or workbook creation. It blocks
 an incomplete universe binding, missing reports/elements, multiple data
@@ -199,9 +232,14 @@ python3 scripts/seed-crystal-snowflake.py
 node scripts/migrate-crystal.mjs --ir report.crystal-ir.json
 # The previous command writes artifacts + calls /verify only.
 node scripts/migrate-crystal.mjs --ir report.crystal-ir.json --create --pdf report.pdf
+node scripts/migrate-crystal.mjs --ir single-table-report.crystal-ir.json --target workbook
+# The previous command writes a stacked interactive draft + calls workbook /verify.
+node scripts/migrate-crystal.mjs --ir multi-table-report.crystal-ir.json --target workbook \
+  --source-table WIDE_REPORT_ROWS --database ANALYTICS --schema PUBLIC --create
 ```
 
-Persistent report creation has no API cleanup. Confirm `SIGMA_FOLDER_ID`, then
+Persistent Crystal report or workbook creation requires `--create`. Report
+creation has no API cleanup in this project. Confirm `SIGMA_FOLDER_ID`, then
 pass `--create` only with explicit approval.
 
 > **Report code-rep wire shape.** Reports use the same outer wrapper as current
@@ -220,20 +258,47 @@ pass `--create` only with explicit approval.
 > containers/tabs/overlays, and page-break elements are invalid. Use
 > `scripts/report-code-rep.mjs` + `scripts/sigma-report.mjs`.
 
-The first tested profile targets the Meridian customer statement. The seeder
-creates `CRYSTAL_MIGRATION_DEMO.PUBLIC.CUSTOMER_STATEMENT_ROWS`; the report
-binds directly through a live-proven `warehouse-table` source. This avoids
+The first offline-tested profile targets the Meridian customer statement. The
+seeder creates `CRYSTAL_MIGRATION_DEMO.PUBLIC.CUSTOMER_STATEMENT_ROWS`; the
+report binds directly through a `warehouse-table` source. This avoids
 pretending the existing one-hop relationship View is a lossless replacement
 for Crystal's eight-table join graph.
 
-**Phase 4 — Verify**
-For DMs/workbooks, query the saved objects (Sigma MCP `describe` + `query`, or
-the UI): real warehouse data and zero error-typed columns. For reports require
-all four gates: offline validation, `/v2/reports/spec/verify`, GET readback +
-element query/inventory comparison, and PDF export/visual inspection against
-the Crystal SDK PDF oracle. Review every warning/degradation. **If a looked-up
-column shows "multiple values,"** fix relationship direction as described
-above.
+Crystal→workbook reuses an explicit data-model binding when
+`--data-model-id`, `--data-model-element-id`, and `--source-name` are supplied;
+otherwise a single-table IR defaults to that table's database/schema/name. A
+multi-table IR requires an explicit wide `--source-table` path; it is never
+silently projected onto the demo table. IR fields and safely translated
+formulas become an ungrouped detail table. Groups/summaries require separate
+elements after grain review, and parameters with unknown domains are omitted
+rather than emitted as inert controls. The adapter emits flat current elements
+and a stacked grid layout. Physical pagination, repeat-header/footer panels,
+absolute twip geometry, section suppression/page breaks, multi-table join
+topology, and unsupported objects are recorded in the degradation ledger.
+
+**Phase 4 — Verify and accept**
+
+Use the current canonical gates for every resolved target:
+
+1. **Reuse:** search existing Sigma models/calculations before adding another
+   object; record the reuse decision.
+2. **Post-DM readback:** after semantic writes, GET the data model and confirm
+   server IDs/formulas before building report-layer references.
+3. **Layout last:** build and validate elements/formulas first; apply the final
+   workbook grid or report pixel layout only after the content stabilizes.
+4. **Verify + readback:** call the matching `/verify`, create only when
+   approved, GET the created representation, and compare normalized documents.
+5. **Parity:** query representative detail rows and totals against the
+   warehouse/source oracle; zero error-typed columns is necessary but not
+   sufficient.
+6. **Security:** inventory source restrictions and explicitly preserve or
+   rebuild RLS, grants, and delivery settings before acceptance.
+
+For reports also compare inventory/query results and inspect the exported PDF
+against the Crystal SDK PDF oracle. Review every warning/degradation. **If a
+looked-up column shows "multiple values,"** fix relationship direction as
+described above. Do not claim parity from artifact generation, a 200 response,
+or `/verify` alone.
 
 ## Webi feature coverage (what auto-converts vs. finish by hand)
 
@@ -322,7 +387,11 @@ PDF.
 
 If you're an agent with the Sigma data-model MCP available, you can skip `converters/bobj.mjs` and call the `convert_bobj_to_sigma` tool directly on the universe JSON from `getUniverse()`, then POST via the Sigma REST skill. The script path is the self-contained equivalent.
 
-For workbooks: convert with `converters/webi.mjs`, then **wrap before POST** — `prepareWorkbookForPost(result.workbook)` from `scripts/code_rep.mjs` (or use `postWorkbook`, which does it for you). Do not POST a flat `{schemaVersion, pages:[{elements}]}` body; see Phase 3.
+For workbooks: convert Webi with `convertWebiToWorkbook`, or Crystal with
+`convertCrystalToWorkbook`, then **wrap before POST** —
+`prepareWorkbookForPost(result.workbook)` from `scripts/code_rep.mjs` (or use
+`postWorkbook`, which does it for you). Do not POST a flat
+`{schemaVersion, pages:[{elements}]}` body; see Phase 3.
 
 For Crystal/Sigma reports: normalize to Crystal IR, call
 `convertCrystalToReport`, validate with `validateReportSpec`, call report
@@ -330,6 +399,11 @@ For Crystal/Sigma reports: normalize to Crystal IR, call
 `scripts/report-code-rep.mjs`; never reuse workbook grid layout. Defer
 authoring support decisions to the installed `sigma-reports` skill/OpenAPI
 support matrix.
+
+For Webi/Sigma reports, create and read back the verified workbook first, then
+use `convertWorkbookToReport`; do not relabel workbook JSON as
+`kind: "report"`. Save and review every conversion warning before validating,
+verifying, and exporting the generated report.
 
 ## Scope & limits
 
@@ -339,11 +413,11 @@ support matrix.
   extraction requires the official Windows SDK; CMS extraction requires
   Java/RAS. Advanced/opaque features remain explicit degradations.
 - **`@`-functions & predefined filters** — emitted as warnings; re-author as Sigma controls/filters.
-- **Status:** universe/Webi converters are verified end-to-end against Sigma
-  (POST + real-data query). Three Crystal proof profiles pass persistent
-  Snowflake→Sigma create/update/readback/query/PDF gates. RWS discovery and
-  official SAP SDK/RAS service-pack shapes still require a representative
-  customer smoke test.
+- **Status:** offline converters/tests and guarded lifecycle scripts are
+  provided. Webi→report and Crystal→workbook are new first-draft paths with no
+  live proof claimed here. Run the full reuse/readback/layout-last/parity/RLS
+  gates in the target organization. RWS discovery and official SAP SDK/RAS
+  service-pack shapes still require a representative customer smoke test.
 - **Workbook POST shape:** since 2026-08 the workbook code-rep requires the `document` wrapper (`kind: "workbook"`, flat `elements`, metadata-only `pages`, `layout`). `postWorkbook` adapts converter output automatically; see Phase 3. Data-model POSTs stay flat.
 
 Run `npm test` for all offline universe, Webi, Crystal, workbook code-rep, and
