@@ -17,7 +17,7 @@ export function snapshotState(directory) {
   let manifest = {};
   try { manifest = JSON.parse(readFileSync(manifestPath, 'utf8')); } catch { return { status: 'partial', warnings: ['manifest.json is not valid JSON'] }; }
   const warnings = Array.isArray(manifest.warnings) ? manifest.warnings : [];
-  const partial = warnings.some(warning => /\/dataproviders:|\/elements:|\/reports\//.test(warning));
+  const partial = warnings.some(warning => /\/dataproviders:|\/elements:|\/reports\/|\/inputcontrols:/i.test(warning));
   return { status: partial ? 'partial' : 'complete', warnings };
 }
 
@@ -33,6 +33,7 @@ export async function captureWebiSnapshot(documentId, outputDir) {
       reports: captured.document.reports.length,
       variables: captured.document.variables.length,
       filters: captured.document.filters.length,
+      inputControls: captured.document.inputControls.length,
       dataProviders: captured.dataproviders.length,
       warnings: captured.warnings,
     },

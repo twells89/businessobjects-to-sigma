@@ -86,8 +86,8 @@ count. `score = value / (1 + cost)`.
 | `needs-capture` | Web Intelligence row without a document snapshot |
 | `retire` | Only when the audit file lists the artifact with zero runs |
 
-Universe contexts and multi-fact views stay in the gap histogram. The converter
-does not model alternate join paths, and this assessment does not hide that.
+Universe contexts, input controls, and multi-fact views stay in the gap histogram. The converter
+does not model alternate join paths or bind Webi input controls, and this assessment does not hide that.
 
 ## Waves
 

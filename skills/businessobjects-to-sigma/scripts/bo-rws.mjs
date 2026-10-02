@@ -369,9 +369,10 @@ export async function getWebiDocument(id) {
   }
   const variableResult = await getWebiVariablesCapture(id, warnings);
   const variables = variableResult.variables;
-  const inputControls = await optionalJson(`/raylight/v1/documents/${id}/inputcontrols`, warnings);
+  const inputControlPayload = await optionalJson(`/raylight/v1/documents/${id}/inputcontrols`, warnings);
+  const inputControls = collectionItems(inputControlPayload, 'inputControls', 'inputControl');
   return {
-    document: { name, reports, variables, filters, dataproviders },
+    document: { name, reports, variables, filters, dataproviders, inputControls },
     dataproviders,
     warnings,
     snapshot: {

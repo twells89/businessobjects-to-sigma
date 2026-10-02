@@ -53,6 +53,7 @@ check(clean?.tag !== 'retire', 'missing usage does not retire a clean document')
 check(multi?.tag === 'needs-review' && multi.gaps.some(gap => gap.signal === 'multiple-data-providers'), 'multiple providers are unhandled');
 check(sample?.gaps.some(gap => gap.signal === 'unbound-filters'), 'sample Webi filters stay manual');
 check(sample?.tag !== 'migrate-first', 'filtered Webi is not migrate-first');
+check(byId.get('prompted-webi')?.gaps.some(gap => gap.signal === 'input-controls'), 'input controls stay visible as manual work');
 check(nofilter?.gaps.some(gap => gap.signal === 'nofilter') && nofilter.tag === 'needs-review', 'NoFilter is an unhandled review');
 check(crystal && crystal.tag !== 'extract-first' && crystal.degradations > 0, 'Crystal IR is scored from the degradation ledger');
 check(fullUniverse?.kind === 'universe' && fullUniverse.tag !== 'needs-export', 'SL-SDK XML is not treated as an outline');

@@ -28,6 +28,28 @@ const ASSESSMENT_BINDING = {
   sourceName: 'Assessment View',
 };
 
+function countInputControls(source) {
+  const candidates = [
+    source?.document?.inputControls,
+    source?.inputControls,
+    source?.snapshot?.inputControls,
+  ];
+  for (const candidate of candidates) {
+    const count = controlCount(candidate);
+    if (count) return count;
+  }
+  return 0;
+}
+
+function controlCount(node) {
+  if (!node) return 0;
+  if (Array.isArray(node)) return node.filter(Boolean).length;
+  if (Array.isArray(node.inputControl)) return node.inputControl.filter(Boolean).length;
+  if (node.inputControl) return 1;
+  if (Array.isArray(node.inputControls)) return node.inputControls.filter(Boolean).length;
+  return 0;
+}
+
 function baseArtifact(meta, gaps, acquisition) {
   const counts = countsOf(gaps);
   return {
@@ -88,6 +110,15 @@ export function scoreWebi(raw, meta) {
     const gaps = [];
     classifyWarnings(WEBI_RULES, result.warnings, gaps);
     classifyBlockers(preflight.blockers, gaps);
+    const inputControls = countInputControls(source);
+    addCounted(
+      gaps,
+      'input-controls',
+      'manual',
+      inputControls,
+      'Webi input controls are not bound to Sigma controls.',
+      'Recreate each input control as a Sigma control and restore its filter scope.',
+    );
     const stats = result.stats || {};
     addCounted(gaps, 'tables', 'auto', stats.tables || 0, 'Webi tables became Sigma tables.', '—');
     addCounted(gaps, 'pivots', 'auto', stats.pivots || 0, 'Crosstabs became pivot tables.', '—');

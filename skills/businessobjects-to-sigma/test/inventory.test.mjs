@@ -1,5 +1,6 @@
-import { mergeByKind, normalizeCmsRow, selectFolderScope, folderPath } from '../scripts/inventory.mjs';
+import { mergeByKind, normalizeCmsRow, selectFolderScope, folderPath, discoverRepository } from '../scripts/inventory.mjs';
 import { snapshotState } from '../scripts/capture-webi.mjs';
+import { resetSessionForTests } from '../scripts/bo-rws.mjs';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -50,6 +51,46 @@ check(snapshotState(dir).status === 'partial', 'provider capture warnings stay p
 writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ warnings: [] }));
 check(snapshotState(dir).status === 'complete', 'a clean snapshot is complete');
 rmSync(dir, { recursive: true, force: true });
+
+const originalFetch = globalThis.fetch;
+const saved = {
+  base: process.env.BO_BASE_URL,
+  user: process.env.BO_USER,
+  password: process.env.BO_PASSWORD,
+  token: process.env.BO_LOGON_TOKEN,
+};
+process.env.BO_BASE_URL = 'https://bo.example:6405/biprws';
+process.env.BO_USER = 'migration';
+process.env.BO_PASSWORD = 'pw';
+delete process.env.BO_LOGON_TOKEN;
+resetSessionForTests('');
+globalThis.fetch = async (url, init) => {
+  const target = String(url);
+  if (target.endsWith('/logon/long')) {
+    return new Response(JSON.stringify({ logonToken: 'fresh' }), { status: 200, headers: { 'content-type': 'application/json', 'x-sap-logontoken': 'fresh' } });
+  }
+  if (target.includes('/sl/v1/universes')) return new Response('forbidden', { status: 403 });
+  if (target.includes('/raylight/v1/documents')) {
+    return new Response(JSON.stringify({ documents: { document: [{ id: 3, name: 'Visible' }] } }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }
+  const query = JSON.parse(init.body || '{}').query || '';
+  if (query.includes('CI_INFOOBJECTS')) {
+    return new Response(JSON.stringify({ entries: { entry: [{ SI_ID: 9, SI_NAME: 'Statement', SI_KIND: 'CrystalReport', SI_INSTANCE: 0 }] } }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }
+  return new Response('forbidden', { status: 403 });
+};
+const partial = await discoverRepository();
+check(partial.webiDocuments.some(item => item.name === 'Visible'), 'partial access still inventories visible Webi documents');
+check(partial.crystalReports.some(item => item.name === 'Statement'), 'partial access still inventories Crystal rows from CMS');
+check(partial.completeness.universes.complete === false, 'a forbidden universe list is incomplete');
+check(partial.warnings.some(warning => warning.startsWith('universes:')), 'universe access failure is recorded');
+check(!JSON.stringify(partial).includes('pw'), 'inventory output does not contain the logon password');
+globalThis.fetch = originalFetch;
+if (saved.base == null) delete process.env.BO_BASE_URL; else process.env.BO_BASE_URL = saved.base;
+if (saved.user == null) delete process.env.BO_USER; else process.env.BO_USER = saved.user;
+if (saved.password == null) delete process.env.BO_PASSWORD; else process.env.BO_PASSWORD = saved.password;
+if (saved.token == null) delete process.env.BO_LOGON_TOKEN; else process.env.BO_LOGON_TOKEN = saved.token;
+resetSessionForTests(process.env.BO_LOGON_TOKEN || '');
 
 console.log(failures ? `\n${failures} inventory check(s) failed` : '\nAll inventory checks passed');
 process.exit(failures ? 1 : 0);
