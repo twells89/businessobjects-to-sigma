@@ -1,0 +1,9 @@
+{
+  "id": "outline-universe",
+  "universe": {
+    "name": "Outline Only",
+    "classes": [
+      { "name": "Orders", "objects": [{ "name": "Revenue", "type": "Measure" }] }
+    ]
+  }
+}

@@ -17,9 +17,15 @@
  *   BO_AUTH       secEnterprise | secLDAP | secWinAD | secSAPR3  (default secEnterprise)
  */
 
-const BASE = (process.env.BO_BASE_URL || '').replace(/\/$/, '');
 let TOKEN = process.env.BO_LOGON_TOKEN || '';
 const REQUEST_TIMEOUT_MS = Number(process.env.BO_REQUEST_TIMEOUT_MS || 30000);
+
+export function boBaseUrl() {
+  return (process.env.BO_BASE_URL || '').replace(/\/$/, '');
+}
+
+/** Import-time snapshot. Prefer boBaseUrl() when the environment can change. */
+export const BO_BASE = boBaseUrl();
 
 function need(v, name) { if (!v) throw new Error(`Missing ${name} — set it in .bo_env`); return v; }
 
@@ -29,33 +35,42 @@ function headers(extra = {}) {
   return h;
 }
 
-/** POST /logon/long → logon token (also cached on this module). */
-export async function logon() {
-  need(BASE, 'BO_BASE_URL');
-  if (TOKEN) return TOKEN;
-  const body = {
-    userName: need(process.env.BO_USER, 'BO_USER'),
-    password: need(process.env.BO_PASSWORD, 'BO_PASSWORD'),
-    auth: process.env.BO_AUTH || 'secEnterprise',
-  };
-  const res = await fetch(`${BASE}/logon/long`, { method: 'POST', headers: headers(), body: JSON.stringify(body) });
-  if (!res.ok) throw new Error(`logon failed: HTTP ${res.status} ${await res.text()}`);
-  // Token comes back in the X-SAP-LogonToken header and/or the JSON body.
-  TOKEN = res.headers.get('x-sap-logontoken') || (await res.clone().json().catch(() => ({}))).logonToken || '';
-  if (!TOKEN) throw new Error('logon succeeded but no logon token returned');
-  return TOKEN;
+export function redactSecrets(text) {
+  return String(text ?? '')
+    .replace(/(X-SAP-LogonToken["']?\s*[:=]\s*["']?)[^"'\s,}&]+/gi, '$1<REDACTED>')
+    .replace(/((?:password|passwd|secret|credential|token|authorization|logonToken)["']?\s*[:=]\s*["']?)[^"'\s,}&]+/gi, '$1<REDACTED>');
+}
+
+/** Deep-redact credential-shaped keys before anything is written to disk. */
+export function redact(value, key = '') {
+  if (/password|passwd|secret|credential|token|authorization/i.test(key)) return '<REDACTED>';
+  if (Array.isArray(value)) return value.map(item => redact(item));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [childKey, redact(childValue, childKey)]));
+  }
+  return value;
+}
+
+function truncateText(text, max = 300) {
+  const value = String(text ?? '');
+  return value.length > max ? `${value.slice(0, max)}…` : value;
+}
+
+export function resetSessionForTests(token = '') {
+  TOKEN = token;
 }
 
 function requestUrl(path) {
+  const base = boBaseUrl();
   if (/^https?:\/\//i.test(path)) {
     const requested = new URL(path);
-    const configured = new URL(need(BASE, 'BO_BASE_URL'));
+    const configured = new URL(need(base, 'BO_BASE_URL'));
     if (requested.origin !== configured.origin) {
       throw new Error(`Refusing RWS pagination URL on a different origin: ${requested.origin}`);
     }
     return requested.toString();
   }
-  return `${BASE}${path.startsWith('/') ? path : `/${path}`}`;
+  return `${base}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
 function retryDelay(res, attempt) {
@@ -67,22 +82,64 @@ function retryDelay(res, attempt) {
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-async function getJson(path, retryAuth = true, attempt = 0) {
+async function rawFetch(method, path, { body, attempt = 0 } = {}) {
   const res = await fetch(requestUrl(path), {
+    method,
     headers: headers(),
+    body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
+  if ((res.status === 429 || res.status >= 500) && attempt < 3) {
+    await sleep(retryDelay(res, attempt));
+    return rawFetch(method, path, { body, attempt: attempt + 1 });
+  }
+  return res;
+}
+
+/** POST /logon/long → logon token (also cached on this module). */
+export async function logon() {
+  need(boBaseUrl(), 'BO_BASE_URL');
+  if (TOKEN) return TOKEN;
+  const res = await rawFetch('POST', '/logon/long', {
+    body: {
+      userName: need(process.env.BO_USER, 'BO_USER'),
+      password: need(process.env.BO_PASSWORD, 'BO_PASSWORD'),
+      auth: process.env.BO_AUTH || 'secEnterprise',
+    },
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(redactSecrets(`logon failed: HTTP ${res.status} ${truncateText(text)}`));
+  let json = {};
+  try { json = text ? JSON.parse(text) : {}; } catch { json = {}; }
+  TOKEN = res.headers.get('x-sap-logontoken') || json.logonToken || '';
+  if (!TOKEN) throw new Error('logon succeeded but no logon token returned');
+  return TOKEN;
+}
+
+async function responseJson(res, method, path) {
+  const text = await res.text();
+  if (!res.ok) throw new Error(redactSecrets(`${method} ${path} → HTTP ${res.status} ${truncateText(text)}`));
+  if (!text) return {};
+  try { return JSON.parse(text); }
+  catch { throw new Error(`${method} ${path} returned non-JSON`); }
+}
+
+/**
+ * GET/POST JSON with the same timeout, 429/5xx retry, 401 re-logon, and
+ * same-origin checks as the typed RWS reads.
+ */
+export async function requestJson(method, path, { body, retryAuth = true } = {}) {
+  const res = await rawFetch(method, path, { body });
   if (res.status === 401 && retryAuth && !process.env.BO_LOGON_TOKEN) {
     TOKEN = '';
     await logon();
-    return getJson(path, false, attempt);
+    return requestJson(method, path, { body, retryAuth: false });
   }
-  if ((res.status === 429 || res.status >= 500) && attempt < 3) {
-    await sleep(retryDelay(res, attempt));
-    return getJson(path, retryAuth, attempt + 1);
-  }
-  if (!res.ok) throw new Error(`GET ${path} → HTTP ${res.status} ${await res.text()}`);
-  return res.json();
+  return responseJson(res, method, path);
+}
+
+async function getJson(path) {
+  return requestJson('GET', path);
 }
 
 // RWS wraps collections as { <plural>: { <singular>: [...] } } and sometimes a
@@ -176,9 +233,9 @@ export async function collectPaginated(firstPath, fetchPage, extractItems) {
   return { items, payloads, pages, advertisedTotal, complete };
 }
 
-async function getCollection(path, plural, singular) {
+async function getCollection(path, plural, singular, { strict = true } = {}) {
   const result = await collectPaginated(path, getJson, payload => collectionItems(payload, plural, singular));
-  if (!result.complete) {
+  if (strict && !result.complete) {
     throw new Error(`${path} returned ${result.items.length} of ${result.advertisedTotal} advertised entries without a next-page link`);
   }
   return result;
@@ -203,8 +260,8 @@ export async function listUniverses() {
   return (await listUniversesDetailed()).items;
 }
 
-export async function listUniversesDetailed() {
-  return getCollection('/sl/v1/universes', 'universes', 'universe');
+export async function listUniversesDetailed(options = {}) {
+  return getCollection('/sl/v1/universes', 'universes', 'universe', options);
 }
 
 export async function getUniverse(id) {
@@ -217,8 +274,8 @@ export async function listWebiDocuments() {
   return (await listWebiDocumentsDetailed()).items;
 }
 
-export async function listWebiDocumentsDetailed() {
-  return getCollection('/raylight/v1/documents', 'documents', 'document');
+export async function listWebiDocumentsDetailed(options = {}) {
+  return getCollection('/raylight/v1/documents', 'documents', 'document', options);
 }
 
 /**
@@ -312,9 +369,10 @@ export async function getWebiDocument(id) {
   }
   const variableResult = await getWebiVariablesCapture(id, warnings);
   const variables = variableResult.variables;
-  const inputControls = await optionalJson(`/raylight/v1/documents/${id}/inputcontrols`, warnings);
+  const inputControlPayload = await optionalJson(`/raylight/v1/documents/${id}/inputcontrols`, warnings);
+  const inputControls = collectionItems(inputControlPayload, 'inputControls', 'inputControl');
   return {
-    document: { name, reports, variables, filters, dataproviders },
+    document: { name, reports, variables, filters, dataproviders, inputControls },
     dataproviders,
     warnings,
     snapshot: {
@@ -331,12 +389,27 @@ export async function getWebiDocument(id) {
 
 // ── CMS query (full-repository inventory) ────────────────────────────────────
 
-/** Run a CMS query (SQL-like over InfoObjects). Returns the entries array. */
+function cmsEntries(payload) {
+  return asArray(payload?.entries?.entry ?? payload?.entries ?? payload?.results);
+}
+
+/** Run a CMS query. POST uses the same retry, re-logon, timeout, and origin checks as GET. */
 export async function cmsQuery(query) {
-  const res = await fetch(`${BASE}/v1/cmsquery`, { method: 'POST', headers: headers(), body: JSON.stringify({ query }) });
-  if (!res.ok) throw new Error(`cmsquery → HTTP ${res.status} ${await res.text()}`);
-  const j = await res.json();
-  return asArray(j.entries?.entry ?? j.entries ?? j.results);
+  const collected = [];
+  const seen = new Set();
+  let payload = await requestJson('POST', '/v1/cmsquery', { body: { query } });
+  let pages = 0;
+  while (payload) {
+    pages++;
+    if (pages > 10000) throw new Error('Pagination exceeded 10,000 pages');
+    collected.push(...cmsEntries(payload));
+    const next = nextPagePath(payload);
+    if (!next) break;
+    if (seen.has(next)) throw new Error(`Pagination loop detected at ${next}`);
+    seen.add(next);
+    payload = await requestJson('GET', next);
+  }
+  return collected;
 }
 
 /**
@@ -359,5 +432,3 @@ export async function listCrystalReports() {
     instance: row.SI_INSTANCE ?? row.si_instance ?? row.instance ?? 0,
   }));
 }
-
-export const BO_BASE = BASE;

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "businessobjects-to-sigma",
+  "displayName": "BusinessObjects → Sigma",
+  "version": "0.1.0",
+  "description": "Migrate SAP BusinessObjects to Sigma. Universes become data models, Web Intelligence documents become workbooks or reports, and Crystal Reports become reports or interactive workbook drafts. Includes a read-only estate assessment scored against the converter's own warnings and preflight blockers.",
+  "author": { "name": "Thomas Wells" },
+  "license": "MIT",
+  "keywords": ["businessobjects", "sap", "webi", "crystal-reports", "universe", "sigma", "migration", "bi", "converter", "assessment"],
+  "skills": "./skills/"
+}

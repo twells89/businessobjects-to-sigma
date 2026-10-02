@@ -1,0 +1,19 @@
+{
+  "id": "multi-webi",
+  "document": {
+    "name": "Multi Provider",
+    "dataproviders": [
+      { "id": "a", "universeId": "u1" },
+      { "id": "b", "universeId": "u2" }
+    ],
+    "reports": [
+      {
+        "name": "Overview",
+        "blocks": [
+          { "kind": "VTable", "title": "Detail", "dimensions": ["Customer Region"], "measures": ["Net Revenue"] }
+        ]
+      }
+    ],
+    "filters": []
+  }
+}

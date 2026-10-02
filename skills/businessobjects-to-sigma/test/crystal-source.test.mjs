@@ -1,8 +1,11 @@
 import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { crystalSourceToBobj, inferFactTable } from '../converters/crystal-source.mjs';
 import { convertBobjToSigma } from '../converters/bobj.mjs';
 
-const ir = JSON.parse(readFileSync('fixtures/crystal/owned-customer-statement.ir.json', 'utf8'));
+const skillRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+const ir = JSON.parse(readFileSync(join(skillRoot, 'fixtures/crystal/owned-customer-statement.ir.json'), 'utf8'));
 let failures = 0;
 function check(condition, message) {
   console.log(`${condition ? '✅' : '❌'} ${message}`);

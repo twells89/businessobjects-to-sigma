@@ -1,0 +1,16 @@
+{
+  "id": "clean-webi",
+  "document": {
+    "name": "Clean Webi",
+    "dataproviders": [{ "id": "p", "universeId": "efashion_universe" }],
+    "reports": [
+      {
+        "name": "Overview",
+        "blocks": [
+          { "kind": "VTable", "title": "Detail", "dimensions": ["Customer Region"], "measures": ["Net Revenue"] }
+        ]
+      }
+    ],
+    "filters": []
+  }
+}

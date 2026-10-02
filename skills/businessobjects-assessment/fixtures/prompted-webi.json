@@ -1,0 +1,17 @@
+{
+  "id": "prompted-webi",
+  "document": {
+    "name": "Prompted Webi",
+    "dataproviders": [{ "id": "p", "universeId": "efashion_universe" }],
+    "inputControls": [{ "name": "Year", "type": "list" }],
+    "reports": [
+      {
+        "name": "Overview",
+        "blocks": [
+          { "kind": "VTable", "title": "Detail", "dimensions": ["Customer Region"], "measures": ["Net Revenue"] }
+        ]
+      }
+    ],
+    "filters": []
+  }
+}

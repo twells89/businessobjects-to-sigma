@@ -57,6 +57,14 @@ export function universePreflight(input, result, options = {}) {
   };
 }
 
+export function webiProviderUniverseIds(source) {
+  const document = source?.document ?? source ?? {};
+  const providers = Array.isArray(source?.dataproviders)
+    ? source.dataproviders
+    : (Array.isArray(document.dataproviders) ? document.dataproviders : []);
+  return [...new Set(providers.map(providerUniverseId).filter(Boolean).map(String))];
+}
+
 function providerUniverseId(provider) {
   return provider?.universeId
     ?? provider?.universe?.id
@@ -76,7 +84,7 @@ export function webiPreflight(source, result, binding = {}) {
   const providers = Array.isArray(source?.dataproviders)
     ? source.dataproviders
     : (Array.isArray(document.dataproviders) ? document.dataproviders : []);
-  const universeIds = [...new Set(providers.map(providerUniverseId).filter(Boolean).map(String))];
+  const universeIds = webiProviderUniverseIds(source);
   const filters = [
     ...(Array.isArray(document.filters) ? document.filters : []),
     ...reportFilters(document),
