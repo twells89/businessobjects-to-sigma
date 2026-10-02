@@ -69,7 +69,7 @@ node scripts/migrate-universe.mjs --file universe.xml      # convert + POST (no 
 ## Prerequisites
 
 1. **Network reachability.** RWS runs *on* the on-prem BO server (`https://<host>:6405/biprws`). Run this skill somewhere that can reach it — the customer's machine / VPN. A cloud runner behind no tunnel cannot.
-2. **`.bo_env`** — copy `.bo_env.example`, fill BO credentials (`BO_USER`/`BO_PASSWORD`/`BO_AUTH`) and Sigma auth + target folder/connection. Then `set -a; . ./.bo_env; set +a`.
+2. **`.bo_env`** — copy the repository-root `.bo_env.example` (from this skill, `../../.bo_env.example`), fill BO credentials (`BO_USER`/`BO_PASSWORD`/`BO_AUTH`) and Sigma auth + target folder/connection. Then `set -a; . ./.bo_env; set +a`.
 3. **A warehouse connection in Sigma** (`SIGMA_CONNECTION_ID`) pointing at the same database the universe's tables live on. The universe maps object SQL to physical tables; the data model binds them to this connection.
 4. **Crystal extractor runtime (Crystal only).** Loose `.rpt`: Windows x64 +
    matching Crystal Reports for Visual Studio SDK assemblies. CMS: BI Platform
@@ -91,7 +91,9 @@ node scripts/migrate-universe.mjs --file universe.xml      # convert + POST (no 
 ```
 node scripts/discover.mjs
 ```
-Logs on, follows server-provided pagination for every universe and Webi document (typed RWS lists, with a CMS-query fallback), verifies advertised totals, and writes `inventory.json` with the source host and page counts. Use it to pick what to migrate first (start with the universes that the highest-value reports depend on).
+Logs on, follows server-provided pagination for every universe and Webi document (typed RWS lists, with a CMS-query fallback), verifies advertised totals, and writes `inventory.json` with folder, owner, and timestamp metadata when the service pack exposes them. Use it to pick what to migrate first (start with the universes that the highest-value reports depend on).
+
+For an estate-wide readiness readout — coverage scored from this converter's warnings and preflight blockers, plus a dependency-aware wave plan — use the sibling `businessobjects-assessment` skill. It is read-only and does not post to Sigma.
 
 Before converting a selected report, capture its source responses:
 ```

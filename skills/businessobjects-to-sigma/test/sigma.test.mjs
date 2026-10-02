@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 process.env.SIGMA_BASE_URL = 'https://aws-api.sigmacomputing.com';
@@ -29,7 +29,7 @@ writeFileSync(join(neutralDir, 'env'), [
   "export SIGMA_FOLDER_ID='from-file'",
   "export NODE_OPTIONS='--require malicious.js'",
 ].join('\n'));
-const moduleUrl = pathToFileURL(resolve('scripts/sigma.mjs')).href;
+const moduleUrl = pathToFileURL(resolve(dirname(fileURLToPath(import.meta.url)), '../scripts/sigma.mjs')).href;
 const isolatedEnv = Object.fromEntries(
   Object.entries(process.env).filter(([key]) => !key.startsWith('SIGMA_')),
 );

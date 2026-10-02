@@ -1,0 +1,16 @@
+{
+  "id": "blocked-webi",
+  "document": {
+    "name": "Blocked Webi",
+    "dataproviders": [{ "id": "p", "universeId": "outline-universe" }],
+    "reports": [
+      {
+        "name": "Overview",
+        "blocks": [
+          { "kind": "VTable", "title": "Detail", "dimensions": ["Revenue"], "measures": ["Revenue"] }
+        ]
+      }
+    ],
+    "filters": []
+  }
+}

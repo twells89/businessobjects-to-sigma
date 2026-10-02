@@ -21,6 +21,11 @@ and the public Meridian proof, but is not the production extraction contract.
 > security, and PDF inspection (for reports) in the target organization before
 > acceptance. RWS and CMS/RAS shapes vary by BO service pack.
 
+Scope an estate before converting with the read-only
+[`businessobjects-assessment`](skills/businessobjects-assessment/SKILL.md) skill.
+It scores universes, Web Intelligence documents, and Crystal Reports from this
+converter's own warnings, preflight blockers, and Crystal degradation ledger.
+
 ## How it maps
 
 **Universe → data model** (`converters/bobj.mjs`)
@@ -139,15 +144,15 @@ extraction therefore opens the report with the customer's licensed SDK/runtime:
 
 ```powershell
 $env:CRYSTAL_SDK_DIR = 'C:\path\to\matching\x64\CrystalDecisions assemblies'
-dotnet build tools\crystal-extractor\CrystalExtractor.csproj -c Release
-tools\crystal-extractor\bin\Release\net48\crystal-extractor.exe report.rpt `
+dotnet build skills\businessobjects-to-sigma\tools\crystal-extractor\CrystalExtractor.csproj -c Release
+skills\businessobjects-to-sigma\tools\crystal-extractor\bin\Release\net48\crystal-extractor.exe report.rpt `
   --out report.crystal-ir.json --pdf report.crystal.pdf
 ```
 
 For CMS content:
 
 ```bash
-groovy -cp "$BO_SDK_LIB/*" scripts/extract-crystal-cms.groovy \
+groovy -cp "$BO_SDK_LIB/*" skills/businessobjects-to-sigma/scripts/extract-crystal-cms.groovy \
   --cms cms.example.com:6400 --user "$BO_USER" --password "$BO_PASSWORD" \
   --auth secEnterprise --id 12345 --out-dir artifacts/crystal/cms
 ```
@@ -175,7 +180,7 @@ This is an **agent‑led** migration: the converter produces a faithful first dr
 - 🟡 **Partially** — Sigma fully supports it; a guided rebuild/wiring step (an expected finishing step, not a blocker).
 - 🔴 **Gap** — no clean path today; a documented workaround or remodel.
 
-> **Sigma is not a paginated render engine.** It compiles aggregates and window functions to SQL and runs them in the warehouse over the **entire** result set — the viewport is display only. So "percent of a grand total," running totals, and nested variables compute across all rows regardless of what's scrolled into view (a common Webi worry that simply doesn't apply here). Agent‑facing detail + the per‑report finish‑by‑hand checklist live in [SKILL.md](SKILL.md#webi-feature-coverage).
+> **Sigma is not a paginated render engine.** It compiles aggregates and window functions to SQL and runs them in the warehouse over the **entire** result set — the viewport is display only. So "percent of a grand total," running totals, and nested variables compute across all rows regardless of what's scrolled into view (a common Webi worry that simply doesn't apply here). Agent‑facing detail + the per‑report finish‑by‑hand checklist live in [SKILL.md](skills/businessobjects-to-sigma/SKILL.md#webi-feature-coverage).
 
 **Formulas & aggregation**
 
@@ -376,14 +381,16 @@ later `--universe <id>` command.
 ## Layout
 
 ```
-converters/   bobj.mjs (universe→DM) · webi.mjs (Webi→workbook/report staging) · crystal*.mjs (Crystal→report/workbook)
-helpers.mjs   Sigma id/naming/format/CASE utilities (ported from the MCP)
-scripts/      BO/RAS extraction · Snowflake seed · Sigma workbook/report lifecycles · migration CLIs
-fixtures/     eFashion/Webi fixtures · owned Crystal IR · pinned Meridian source manifest
-schemas/      Crystal migration IR
-tools/        Windows SAP Crystal SDK extractor
-SKILL.md      agent-facing skill definition (Claude Code / Agent SDK)
+skills/businessobjects-to-sigma/     converter (canonical): converters, scripts, fixtures, schemas, tools, SKILL.md
+skills/businessobjects-assessment/   read-only estate inventory, coverage, wave plan, HTML readout
+scripts/                             root wrappers for the Node and Python CLIs
+.claude-plugin/                      plugin manifest (both skills)
 ```
+
+Run converter commands from the repository root with `npm run …` or
+`node scripts/….mjs`. The implementations live in the converter skill; root
+wrappers keep the previous CLI paths working. Groovy extractors are not
+wrapped — invoke the copies under `skills/businessobjects-to-sigma/scripts/`.
 
 ## Limitations
 

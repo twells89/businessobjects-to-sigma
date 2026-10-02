@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { convertXmlResumeToReport } from '../converters/crystal-xmlresume.mjs';
 import { validateReportSpec } from '../scripts/report-code-rep.mjs';
@@ -9,9 +11,10 @@ function check(condition, message) {
   if (!condition) failures++;
 }
 
+const skillRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 console.log('XML Résumé Crystal → Sigma report integration');
-const schema = JSON.parse(readFileSync('schemas/crystal-report-ir.schema.json', 'utf8'));
-const fixture = JSON.parse(readFileSync('fixtures/crystal/owned-xmlresume.ir.json', 'utf8'));
+const schema = JSON.parse(readFileSync(join(skillRoot, 'schemas/crystal-report-ir.schema.json'), 'utf8'));
+const fixture = JSON.parse(readFileSync(join(skillRoot, 'fixtures/crystal/owned-xmlresume.ir.json'), 'utf8'));
 const ajv = new Ajv2020({ strict: false, validateFormats: false });
 const validateIr = ajv.compile(schema);
 check(

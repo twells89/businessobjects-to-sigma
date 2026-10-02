@@ -1,0 +1,15 @@
+{
+  "id": "context-universe",
+  "universe": {
+    "name": "Context Universe",
+    "contexts": [{ "name": "Sales" }],
+    "tables": ["ORDER_FACT", "CUSTOMER_DIM"],
+    "joins": [
+      { "expression": "ORDER_FACT.CUSTOMER_KEY = CUSTOMER_DIM.CUSTOMER_KEY", "cardinality": "many-to-one" }
+    ],
+    "objects": [
+      { "name": "Net Revenue", "type": "Measure", "aggregation": "Sum", "select": "ORDER_FACT.NET_REVENUE" },
+      { "name": "Customer Region", "type": "Dimension", "select": "CUSTOMER_DIM.REGION" }
+    ]
+  }
+}

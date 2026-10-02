@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   buildValidatedCrystalDataModelFieldMap,
   convertCrystalToWorkbook,
@@ -15,8 +17,9 @@ function check(condition, message) {
   if (!condition) failures++;
 }
 
+const skillRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 console.log('Crystal → Sigma workbook first draft');
-const ir = JSON.parse(readFileSync('fixtures/crystal/owned-customer-statement.ir.json', 'utf8'));
+const ir = JSON.parse(readFileSync(join(skillRoot, 'fixtures/crystal/owned-customer-statement.ir.json'), 'utf8'));
 const wideFieldMap = {
   'customer-customer-id': 'customer_customer_id',
   'customer-name': 'customer_name',
