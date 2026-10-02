@@ -161,7 +161,7 @@ export function complexityOf(counts, acquisition) {
 }
 
 export function tagOf({ counts, score, runs, usageMatched, acquisition }) {
-  if (usageMatched && Number(runs) === 0) return 'retire';
+  if (usageMatched && runs !== null && runs !== '' && Number(runs) === 0) return 'retire';
   if (acquisition) return acquisition;
   if (counts.unhandled > 0) return 'needs-review';
   if (counts.manual === 0) return 'migrate-first';
@@ -177,12 +177,15 @@ export function parseUsageCsv(text) {
     const cells = splitCsv(line);
     const row = Object.fromEntries(headers.map((header, index) => [header, cells[index] ?? '']));
     const kind = String(row.kind || row.type || '').toLowerCase();
+    const runsCell = [row.runs, row.views, row.executions, row.refreshes]
+      .find(cell => cell != null && cell !== '');
+    const runs = runsCell == null || !Number.isFinite(Number(runsCell)) ? null : Number(runsCell);
     return {
       id: row.id || row.si_id || null,
       cuid: row.cuid || row.si_cuid || null,
       name: row.name || null,
       kind: kind === 'webi-document' ? 'webi' : kind,
-      runs: Number(row.runs ?? row.views ?? row.executions ?? row.refreshes ?? 0),
+      runs,
     };
   }).filter(row => row.id || row.name);
 }

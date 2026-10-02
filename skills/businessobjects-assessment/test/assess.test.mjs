@@ -4,7 +4,9 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { runAssessment, extractCrystal } from '../scripts/assess.mjs';
-import { scoreCrystal } from '../scripts/score-coverage.mjs';
+import { applyUsage, scoreCrystal, scoreUniverse, scoreWebi } from '../scripts/score-coverage.mjs';
+import { buildMigrationPlan } from '../scripts/plan.mjs';
+import { parseUsageCsv } from '../scripts/scoring.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '../../..');
@@ -82,6 +84,28 @@ const unused = withUsage.coverage.artifacts.find(artifact => artifact.id === 'co
 check(usedClean.tag === 'retire' && usedClean.valueBasis === 'audit-csv', 'an audit row with zero runs can retire');
 check(usedOutline.tag === 'needs-export', 'acquisition blockers outrank a non-zero usage row');
 check(unused.tag !== 'retire' && unused.valueBasis === 'complexity-proxy', 'artifacts missing from the audit file are not retired');
+
+const cleanSource = JSON.parse(readFileSync(join(fixtures, 'clean-webi.json'), 'utf8'));
+const partial = scoreWebi(cleanSource, { id: 'partial-webi', name: 'Partial Webi', captureStatus: 'partial' });
+check(partial.acquisition === 'needs-capture', 'partial Webi snapshots wait for recapture');
+const failedUniverse = scoreUniverse(
+  { universe: { name: 'Failed Universe', classes: [] } },
+  { id: 'failed-universe', name: 'Failed Universe', captureStatus: 'failed' },
+);
+check(failedUniverse.acquisition === 'needs-capture', 'failed universe fetches wait for recapture');
+const [blankUsage] = applyUsage(
+  [scoreWebi(cleanSource, { id: 'clean-webi', name: 'Clean Webi' })],
+  parseUsageCsv('id,kind,name,runs\nclean-webi,webi,Clean Webi,\n'),
+);
+check(blankUsage.tag !== 'retire' && blankUsage.valueBasis === 'complexity-proxy', 'blank audit runs keep the complexity proxy');
+
+const dependencyPlan = buildMigrationPlan([
+  { id: 'retired-universe', name: 'Retired Universe', kind: 'universe', tag: 'retire', dependsOn: [] },
+  { id: 'retired-webi', name: 'Retired Dependency', kind: 'webi', tag: 'migrate-first', dependsOn: ['retired-universe'] },
+  { id: 'missing-webi', name: 'Missing Dependency', kind: 'webi', tag: 'migrate-first', dependsOn: ['missing-universe'] },
+]);
+check(dependencyPlan.blocked.some(item => item.id === 'retired-webi'), 'Webi depending on a retired universe is blocked');
+check(dependencyPlan.blocked.some(item => item.id === 'missing-webi'), 'Webi with a missing universe dependency is blocked');
 
 const metadataOnly = scoreCrystal(null, { id: 'cms-1', name: 'Unextracted', kind: 'crystal' });
 check(metadataOnly.acquisition === 'extract-first', 'CMS Crystal rows without an IR wait for extraction');

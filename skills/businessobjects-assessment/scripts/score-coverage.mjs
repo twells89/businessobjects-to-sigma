@@ -92,9 +92,11 @@ export function scoreUniverse(raw, meta) {
     addCounted(gaps, 'columns', 'auto', result.stats?.columns || 0, 'Business objects became columns or calculations.', '—');
     addCounted(gaps, 'metrics', 'auto', result.stats?.metrics || 0, 'Measures became data-model metrics.', '—');
     addCounted(gaps, 'relationships', 'auto', result.stats?.relationships || 0, 'Equi-joins became relationships.', '—');
-    const acquisition = inputKind === 'json-outline' || gaps.some(item => item.signal === 'outline-only-universe')
-      ? 'needs-export'
-      : null;
+    const acquisition = meta.captureStatus === 'failed'
+      ? 'needs-capture'
+      : inputKind === 'json-outline' || gaps.some(item => item.signal === 'outline-only-universe')
+        ? 'needs-export'
+        : null;
     return { ...baseArtifact({ ...meta, kind: 'universe' }, gaps, acquisition), inputKind, preflight: preflight.verdict };
   } catch (error) {
     return failed({ ...meta, kind: 'universe' }, error.message);
@@ -124,7 +126,7 @@ export function scoreWebi(raw, meta) {
     addCounted(gaps, 'pivots', 'auto', stats.pivots || 0, 'Crosstabs became pivot tables.', '—');
     addCounted(gaps, 'charts', 'auto', stats.charts || 0, 'Charts mapped to Sigma chart kinds.', '—');
     addCounted(gaps, 'kpis', 'auto', stats.kpis || 0, 'Measure cells became KPIs.', '—');
-    const acquisition = meta.captureStatus === 'missing' || meta.captureStatus === 'failed' ? 'needs-capture' : null;
+    const acquisition = ['missing', 'partial', 'failed'].includes(meta.captureStatus) ? 'needs-capture' : null;
     return {
       ...baseArtifact({ ...meta, kind: 'webi', dependsOn }, gaps, acquisition),
       preflight: preflight.verdict,
@@ -167,21 +169,22 @@ export function applyUsage(artifacts, usageRows) {
   const usageFile = usageRows != null;
   return artifacts.map(artifact => {
     const matched = usageFile ? matchUsage(usageRows, artifact) : null;
-    const runs = matched ? matched.runs : null;
-    const value = matched ? runs : 10 * Math.max(artifact.n_features, 1);
+    const hasUsage = matched && Number.isFinite(matched.runs);
+    const runs = hasUsage ? matched.runs : null;
+    const value = hasUsage ? runs : 10 * Math.max(artifact.n_features, 1);
     const score = value / (1 + artifact.cost);
     const tag = tagOf({
       counts: artifact.counts,
       score,
       runs,
-      usageMatched: Boolean(matched),
+      usageMatched: Boolean(hasUsage),
       acquisition: artifact.acquisition,
     });
     return {
       ...artifact,
       runs,
       value,
-      valueBasis: matched ? 'audit-csv' : 'complexity-proxy',
+      valueBasis: hasUsage ? 'audit-csv' : 'complexity-proxy',
       score: Number(score.toFixed(4)),
       tag,
     };

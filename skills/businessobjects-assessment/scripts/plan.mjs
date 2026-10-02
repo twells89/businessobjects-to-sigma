@@ -58,13 +58,20 @@ export function buildMigrationPlan(artifacts) {
   ];
   for (const artifact of ordered) {
     if (artifact.tag === 'retire' || blocked.has(String(artifact.id))) continue;
-    const dependency = (artifact.dependsOn || []).map(id => byId.get(String(id))).find(Boolean);
-    if (dependency && (dependency.tag === 'needs-export' || dependency.tag === 'needs-capture')) {
-      deferred.push({ ...member(artifact), blockedBy: dependency.id, reason: `Waiting on ${dependency.name} (${dependency.tag}).` });
+    const dependencyIds = (artifact.dependsOn || []).map(String);
+    const missingDependency = dependencyIds.find(id => !byId.has(id));
+    const dependencies = dependencyIds.map(id => byId.get(id)).filter(Boolean);
+    const blockingDependency = dependencies.find(item => item.tag === 'retire' || blocked.has(String(item.id)));
+    if (missingDependency) {
+      deferred.push({ ...member(artifact), blockedBy: missingDependency, reason: `Universe ${missingDependency} is missing from the inventory.` });
+      continue;
+    }
+    if (blockingDependency) {
+      deferred.push({ ...member(artifact), blockedBy: blockingDependency.id, reason: `Waiting on ${blockingDependency.name} (${blockingDependency.tag}).` });
       continue;
     }
     let wave = waveFor(artifact.tag) || 3;
-    if (dependency) {
+    for (const dependency of dependencies) {
       const dependencyWave = placed.get(String(dependency.id)) || waveFor(dependency.tag) || wave;
       if (dependencyWave > wave) wave = dependencyWave;
     }
