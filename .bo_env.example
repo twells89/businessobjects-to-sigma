@@ -12,11 +12,19 @@ BO_REQUEST_TIMEOUT_MS=30000    # per-request timeout; 401s relogon automatically
 
 # ── Sigma ────────────────────────────────────────────────────────────────────
 SIGMA_BASE_URL=https://aws-api.sigmacomputing.com
-# Either a ready bearer token…
+# Preferred for an attended terminal: after sourcing this file, run:
+#   eval "$(bash skills/businessobjects-to-sigma/scripts/browser-login.sh)"
+# The refresh token stays in the OS keychain. `auto` reuses/refreshes that
+# browser session first, then falls back to client credentials when configured.
+SIGMA_AUTH_MODE=auto             # auto | browser | client-credentials
+
+# Optional short-lived caller token. Leave blank for browser/client auth.
 SIGMA_API_TOKEN=
-# …or client credentials (exchanged automatically):
+# Unattended fallback (Administration → APIs and Tokens):
 SIGMA_CLIENT_ID=
 SIGMA_CLIENT_SECRET=
+# The runtime may write gitignored ./auth.json containing only a short-lived
+# access token + mint metadata. A browser refresh token is never written here.
 
 SIGMA_FOLDER_ID=               # target folder for created data models / workbooks
 SIGMA_CONNECTION_ID=           # warehouse connection the universe's tables live on

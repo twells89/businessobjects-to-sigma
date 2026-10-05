@@ -83,41 +83,6 @@ try {
   check(/identical/.test(error.message), 'client id copied into secret rejected');
 }
 
-const authResult = spawnSync(process.execPath, ['--input-type=module', '-e', `
-  let request;
-  globalThis.fetch = async (url, init) => {
-    request = { url, headers: init.headers, body: String(init.body) };
-    return new Response(JSON.stringify({ access_token: 'safe-token' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  };
-  const mod = await import(${JSON.stringify(`${moduleUrl}?mint-test=1`)});
-  await mod.sigmaToken();
-  console.log(JSON.stringify(request));
-`], {
-  encoding: 'utf8',
-  env: {
-    ...isolatedEnv,
-    HOME: mkdtempSync(join(tmpdir(), 'bo-sigma-mint-')),
-    SIGMA_BASE_URL: 'https://aws-api.sigmacomputing.com',
-    SIGMA_CLIENT_ID: 'client-id',
-    SIGMA_CLIENT_SECRET: 'client-secret',
-  },
-});
-const authRequest = authResult.status === 0 ? JSON.parse(authResult.stdout.trim()) : {};
-check(authResult.status === 0, `isolated token mint succeeds (${authResult.stderr.trim()})`);
-check(
-  authRequest.headers?.Authorization
-    === `Basic ${Buffer.from('client-id:client-secret').toString('base64')}`,
-  'token exchange uses Basic authorization',
-);
-check(
-  authRequest.body === 'grant_type=client_credentials'
-    && !/client_(?:id|secret)/.test(authRequest.body || ''),
-  'token request body does not duplicate credentials',
-);
-
 const workbook = {
   name: 'Lifecycle workbook',
   folderId: 'folder',

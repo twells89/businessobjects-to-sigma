@@ -279,8 +279,11 @@ proof.
 - **Crystal extraction**: Windows x64 + matching Crystal Reports for Visual
   Studio SDK for loose reports, or BI Platform Java SDK/RAS for CMS reports.
   `rpt-rs` is optional for Linux smoke tests.
-- **Sigma**: an API token (or client id/secret), a target folder, a Snowflake
-  connection, and report create/edit/export permission.
+- **Sigma**: terminal browser login is preferred for attended runs; client
+  credentials are the unattended fallback. A target folder, Snowflake
+  connection, and report create/edit/export permission are also required.
+  Browser setup uses `curl`, `jq`, and `openssl`; automatic browser refresh
+  uses the macOS keychain or Linux `secret-tool`.
 - **Snowflake demo seed**: Python 3 plus
   `pip install -r requirements-crystal.txt`; key-pair variables listed in
   `.bo_env.example`. Use an isolated database/schema and set
@@ -291,6 +294,14 @@ proof.
 ```bash
 cp .bo_env.example .bo_env      # fill in BO + Sigma creds
 set -a; . ./.bo_env; set +a
+
+# Preferred for an attended terminal (one-time OAuth + PKCE login). The refresh
+# token stays in the OS keychain; later commands refresh it automatically.
+eval "$(bash skills/businessobjects-to-sigma/scripts/browser-login.sh)"
+
+# Unattended alternative: leave SIGMA_AUTH_MODE=auto and set
+# SIGMA_CLIENT_ID/SIGMA_CLIENT_SECRET in .bo_env. They are used only when no
+# browser-keychain session is available.
 
 npm test                                         # offline: converters vs. bundled fixtures
 node scripts/discover.mjs                        # inventory universes + Webi docs → inventory.json
@@ -326,6 +337,16 @@ PETTYCASH_E2E_CREATE=true npm run e2e:crystal:pettycash
 npm run e2e:crystal:xmlresume
 XMLRESUME_E2E_CREATE=true npm run e2e:crystal:xmlresume
 ```
+
+Every Sigma caller reuses a valid `SIGMA_API_TOKEN` or gitignored `auth.json`.
+Tokens with known mint age refresh after 50 minutes through the vendored
+browser-first provider, and a rejected token is refreshed and retried once on
+401. `SIGMA_AUTH_MODE=browser` disables client-credential fallback;
+`SIGMA_AUTH_MODE=client-credentials` is available for explicitly headless
+runs. Browser refresh tokens are never written to `auth.json` or the workspace.
+See
+[`skills/businessobjects-to-sigma/scripts/AUTH-RUNTIME.md`](skills/businessobjects-to-sigma/scripts/AUTH-RUNTIME.md)
+for provider provenance and drift checks.
 
 The PettyCash gate downloads a pinned `.rpt` and the PDF exported from that
 exact template by Crystal Reports, validates both blob hashes, reconstructs
