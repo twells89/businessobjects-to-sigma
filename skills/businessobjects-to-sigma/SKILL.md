@@ -69,7 +69,16 @@ node scripts/migrate-universe.mjs --file universe.xml      # convert + POST (no 
 ## Prerequisites
 
 1. **Network reachability.** RWS runs *on* the on-prem BO server (`https://<host>:6405/biprws`). Run this skill somewhere that can reach it — the customer's machine / VPN. A cloud runner behind no tunnel cannot.
-2. **`.bo_env`** — copy the repository-root `.bo_env.example` (from this skill, `../../.bo_env.example`), fill BO credentials (`BO_USER`/`BO_PASSWORD`/`BO_AUTH`) and Sigma auth + target folder/connection. Then `set -a; . ./.bo_env; set +a`.
+2. **`.bo_env` + Sigma login** — copy the repository-root
+   `.bo_env.example` (from this skill, `../../.bo_env.example`), fill BO
+   credentials (`BO_USER`/`BO_PASSWORD`/`BO_AUTH`) and the Sigma base URL +
+   target folder/connection. Then `set -a; . ./.bo_env; set +a`. For an
+   attended terminal, prefer the one-time browser login:
+   `eval "$(bash scripts/browser-login.sh)"`. Its refresh token stays only in
+   the OS keychain. For unattended execution, set
+   `SIGMA_CLIENT_ID`/`SIGMA_CLIENT_SECRET`; default `SIGMA_AUTH_MODE=auto`
+   tries the browser keychain first and uses those client credentials only as
+   fallback.
 3. **A warehouse connection in Sigma** (`SIGMA_CONNECTION_ID`) pointing at the same database the universe's tables live on. The universe maps object SQL to physical tables; the data model binds them to this connection.
 4. **Crystal extractor runtime (Crystal only).** Loose `.rpt`: Windows x64 +
    matching Crystal Reports for Visual Studio SDK assemblies. CMS: BI Platform
@@ -89,9 +98,18 @@ node scripts/migrate-universe.mjs --file universe.xml      # convert + POST (no 
 
 **Phase 1 — Connect & inventory**
 ```
+# Preferred attended Sigma setup (once per keychain session):
+eval "$(bash scripts/browser-login.sh)"
 node scripts/discover.mjs
 ```
 Logs on, follows server-provided pagination for every universe and Webi document (typed RWS lists, with a CMS-query fallback), verifies advertised totals, and writes `inventory.json` with folder, owner, and timestamp metadata when the service pack exposes them. Use it to pick what to migrate first (start with the universes that the highest-value reports depend on).
+
+The browser login is Sigma-only and does not alter BO source authentication.
+Sigma callers reuse valid environment or gitignored `auth.json` access tokens,
+refresh known-age tokens at 50 minutes through `get_token.py`, and refresh/retry
+once on 401. `SIGMA_AUTH_MODE=browser` is browser-only;
+`SIGMA_AUTH_MODE=client-credentials` is the explicit unattended-only mode.
+No refresh token is written outside the OS keychain.
 
 For an estate-wide readiness readout — coverage scored from this converter's warnings and preflight blockers, plus a dependency-aware wave plan — use the sibling `businessobjects-assessment` skill. It is read-only and does not post to Sigma.
 

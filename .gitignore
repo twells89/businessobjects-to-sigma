@@ -1,6 +1,8 @@
 node_modules/
 .bo_env
 .bo-state.json
+auth.json
+__pycache__/
 inventory.json
 artifacts/
 snapshots/

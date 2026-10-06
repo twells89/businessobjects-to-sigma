@@ -21,7 +21,7 @@ import {
   workbookElements,
   workbookPageElementIds,
 } from './code_rep.mjs';
-import { SIGMA_BASE, sigmaRequest, sigmaToken } from './sigma.mjs';
+import { sigmaFetch, sigmaRequest } from './sigma.mjs';
 
 export async function referenceReportSchemaVersion() {
   const list = await sigmaRequest('GET', '/v2/reports?limit=1');
@@ -587,16 +587,14 @@ export async function exportReportPdf(
   outputPath,
   { layout = 'portrait', pageId, parameters, maxWaitMs = 120000, pollMs = 1500 } = {},
 ) {
-  const token = await sigmaToken();
   const body = {
     ...(pageId ? { pageId } : {}),
     format: { type: 'pdf', layout },
     ...(parameters ? { parameters } : {}),
   };
-  const startResponse = await fetch(`${SIGMA_BASE}/v2/reports/${reportId}/export`, {
+  const startResponse = await sigmaFetch(`/v2/reports/${reportId}/export`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
@@ -613,8 +611,8 @@ export async function exportReportPdf(
   const startedAt = Date.now();
   let lastStatus = '';
   while (Date.now() - startedAt < maxWaitMs) {
-    const response = await fetch(`${SIGMA_BASE}/v2/query/${queryId}/download`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/pdf,*/*' },
+    const response = await sigmaFetch(`/v2/query/${queryId}/download`, {
+      headers: { Accept: 'application/pdf,*/*' },
     });
     const buffer = Buffer.from(await response.arrayBuffer());
     if (response.status === 200 && buffer.length > 4) {

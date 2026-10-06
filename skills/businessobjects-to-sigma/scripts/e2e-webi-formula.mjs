@@ -21,7 +21,7 @@ import { dirname, join } from 'node:path';
 import {
   postDataModel, getDataModelSpec, postDataModelSpec,
   postWorkbook, deleteFile, referenceWorkbookSchemaVersion,
-  sigmaToken, SIGMA_BASE,
+  sigmaFetch, SIGMA_BASE,
 } from './sigma.mjs';
 import { convertBobjToSigma } from '../converters/bobj.mjs';
 import { convertWebiToWorkbook } from '../converters/webi.mjs';
@@ -40,10 +40,9 @@ const created = { dataModelId: null, workbookIds: [] };
 // ── Minimal REST helpers this harness needs beyond scripts/sigma.mjs ────────
 
 async function sigmaGet(path) {
-  const tok = await sigmaToken();
   let res, txt;
   try {
-    res = await fetch(`${SIGMA_BASE}${path}`, { headers: { Authorization: `Bearer ${tok}` } });
+    res = await sigmaFetch(path);
     txt = await res.text();
   } catch (e) {
     // Pre/mid-response failure (connection refused/reset, DNS, etc.) — no
@@ -152,15 +151,15 @@ async function describeWorkbook(workbookId) {
  * could start a duplicate export job). The download-poll GET below is a
  * separate, idempotent operation and keeps retrying 5xx as before.
  */
-async function startExport(workbookId, elementId, tok, maxWaitMs, pollMs) {
+async function startExport(workbookId, elementId, maxWaitMs, pollMs) {
   const start = Date.now();
   let lastTransient = '';
   while (Date.now() - start < maxWaitMs) {
     let res, txt;
     try {
-      res = await fetch(`${SIGMA_BASE}/v2/workbooks/${workbookId}/export`, {
+      res = await sigmaFetch(`/v2/workbooks/${workbookId}/export`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ elementId, format: { type: 'json' } }),
       });
       txt = await res.text();
@@ -191,20 +190,19 @@ async function startExport(workbookId, elementId, tok, maxWaitMs, pollMs) {
  * already proven in this org — see reference_sigma_transpose_element.md).
  */
 async function exportElementRows(workbookId, elementId, { maxWaitMs = 90000, pollMs = 1500 } = {}) {
-  const tok = await sigmaToken();
   // The POST that kicks off the export retries only pre-response network
   // failures and HTTP 429 (see startExport) — never a 5xx, since the server
   // may have already accepted the export and re-POSTing risks starting a
   // duplicate export job.
-  const queryId = await startExport(workbookId, elementId, tok, maxWaitMs, pollMs);
+  const queryId = await startExport(workbookId, elementId, maxWaitMs, pollMs);
 
   const start = Date.now();
   let lastTransient = '';
   while (Date.now() - start < maxWaitMs) {
     let dRes, buf;
     try {
-      dRes = await fetch(`${SIGMA_BASE}/v2/query/${queryId}/download`, {
-        headers: { Authorization: `Bearer ${tok}`, Accept: '*/*' },
+      dRes = await sigmaFetch(`/v2/query/${queryId}/download`, {
+        headers: { Accept: '*/*' },
       });
       buf = Buffer.from(await dRes.arrayBuffer());
     } catch (e) {

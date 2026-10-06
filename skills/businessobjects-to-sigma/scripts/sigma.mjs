@@ -1,12 +1,14 @@
 /**
  * Minimal Sigma REST helper for the migration scripts.
  *
- * Auth: either supply SIGMA_API_TOKEN directly, or SIGMA_CLIENT_ID +
- * SIGMA_CLIENT_SECRET (exchanged here for a bearer token).
+ * Auth: reuse a valid SIGMA_API_TOKEN/auth.json token, otherwise invoke the
+ * browser-first canonical provider (OS keychain, then client credentials).
  *
  * Env:
  *   SIGMA_BASE_URL        e.g. https://aws-api.sigmacomputing.com
- *   SIGMA_API_TOKEN       (or) SIGMA_CLIENT_ID + SIGMA_CLIENT_SECRET
+ *   SIGMA_API_TOKEN       optional short-lived caller bearer
+ *   SIGMA_AUTH_MODE       auto (default), browser, or client-credentials
+ *   SIGMA_CLIENT_ID + SIGMA_CLIENT_SECRET   unattended fallback
  *   SIGMA_FOLDER_ID       target folder for created DMs/workbooks
  *   SIGMA_CONNECTION_ID   warehouse connection the universe points at
  *   SIGMA_DATABASE, SIGMA_SCHEMA   optional path overrides
@@ -16,6 +18,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import {
+  createSigmaAuthManager,
+  validateSigmaBaseUrl,
+} from './sigma-auth.mjs';
 import {
   canonicalizeLayout,
   document as workbookDocument,
@@ -27,6 +33,9 @@ import {
 const NEUTRAL_ENV_KEYS = new Set([
   'SIGMA_BASE_URL',
   'SIGMA_API_TOKEN',
+  'SIGMA_TOKEN_MINTED_AT',
+  'SIGMA_AUTH_METHOD',
+  'SIGMA_AUTH_MODE',
   'SIGMA_CLIENT_ID',
   'SIGMA_CLIENT_SECRET',
   'SIGMA_CONNECTION_ID',
@@ -70,33 +79,7 @@ export function loadSigmaEnvironment({
   return env;
 }
 
-export function validateSigmaBaseUrl(
-  base,
-  {
-    allowInsecure = process.env.SIGMA_ALLOW_INSECURE_BASE_URL === '1',
-    warn = console.warn,
-  } = {},
-) {
-  if (allowInsecure) {
-    warn(`WARNING: SIGMA_ALLOW_INSECURE_BASE_URL=1 — skipping SIGMA_BASE_URL validation (${base})`);
-    return base;
-  }
-  let parsed;
-  try { parsed = new URL(base); } catch {
-    throw new Error(`FATAL: SIGMA_BASE_URL is invalid ('${base}') — refusing to send Sigma credentials.`);
-  }
-  const host = parsed.hostname.toLowerCase();
-  if (parsed.protocol !== 'https:') {
-    throw new Error(`FATAL: SIGMA_BASE_URL must use https:// (got '${base}') — refusing to send Sigma credentials.`);
-  }
-  if (host !== 'sigmacomputing.com' && !host.endsWith('.sigmacomputing.com')) {
-    throw new Error(
-      `FATAL: SIGMA_BASE_URL host '${host}' is not a sigmacomputing.com host — refusing to send Sigma credentials. `
-      + 'Set SIGMA_ALLOW_INSECURE_BASE_URL=1 to override (self-hosted/dev).',
-    );
-  }
-  return base;
-}
+export { validateSigmaBaseUrl };
 
 export function assertSigmaCredentials(id, secret) {
   if (!id || !secret) {
@@ -111,39 +94,22 @@ export function assertSigmaCredentials(id, secret) {
 }
 
 loadSigmaEnvironment();
-const BASE = (process.env.SIGMA_BASE_URL || 'https://aws-api.sigmacomputing.com').replace(/\/$/, '');
-let _token = process.env.SIGMA_API_TOKEN || '';
+const SIGMA_AUTH = createSigmaAuthManager();
+const BASE = SIGMA_AUTH.base;
 
 export async function sigmaToken() {
-  validateSigmaBaseUrl(BASE);
-  if (_token) return _token;
-  const id = process.env.SIGMA_CLIENT_ID, secret = process.env.SIGMA_CLIENT_SECRET;
-  assertSigmaCredentials(id, secret);
-  const credentials = Buffer.from(`${id}:${secret}`, 'utf8').toString('base64');
-  const res = await fetch(`${BASE}/v2/auth/token`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${credentials}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({ grant_type: 'client_credentials' }),
-  });
-  if (!res.ok) throw new Error(`Sigma auth failed: HTTP ${res.status} ${await res.text()}`);
-  _token = (await res.json()).access_token;
-  if (!_token) throw new Error('Sigma auth failed: response did not contain access_token');
-  if (!/^[A-Za-z0-9._~+/=-]+$/.test(_token)) {
-    _token = '';
-    throw new Error('Sigma auth failed: access_token contains unexpected characters');
-  }
-  return _token;
+  return SIGMA_AUTH.current().token;
+}
+
+/** Fetch a Sigma origin-relative path with proactive refresh and one 401 retry. */
+export async function sigmaFetch(path, init = {}) {
+  return SIGMA_AUTH.fetch(path, init);
 }
 
 async function req(method, path, body, asText = false) {
-  const tok = await sigmaToken();
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await sigmaFetch(path, {
     method,
     headers: {
-      Authorization: `Bearer ${tok}`,
       'Content-Type': 'application/json',
       Accept: asText ? '*/*' : 'application/json',
     },
