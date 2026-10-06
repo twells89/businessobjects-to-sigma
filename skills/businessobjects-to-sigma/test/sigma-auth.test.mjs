@@ -65,10 +65,11 @@ test('browser-only mode refreshes without client credentials', () => {
     env,
     workdir: workdir(),
     now: () => Date.parse('2026-10-05T20:10:00Z'),
-    provider: ({ env: providerEnv }) => {
+    provider: ({ env: providerEnv, forceRefresh }) => {
       providers++;
       assert.equal(providerEnv.SIGMA_AUTH_MODE, 'browser');
       assert.equal(providerEnv.SIGMA_CLIENT_ID, undefined);
+      assert.equal(forceRefresh, false);
       return {
         base: BASE,
         token: 'browser-token',
@@ -121,8 +122,9 @@ test('known token age refreshes at 50 minutes', () => {
     env,
     workdir: workdir(),
     now: () => Date.parse(mintedAt) + TOKEN_REFRESH_AGE_MS,
-    provider: () => {
+    provider: ({ forceRefresh }) => {
       providers++;
+      assert.equal(forceRefresh, true);
       return {
         base: BASE,
         token: 'fresh-token',
@@ -144,8 +146,9 @@ test('401 refreshes and retries exactly once', async () => {
   const manager = createSigmaAuthManager({
     env,
     workdir: workdir(),
-    provider: () => {
+    provider: ({ forceRefresh }) => {
       refreshes++;
+      assert.equal(forceRefresh, true);
       return {
         base: BASE,
         token: 'fresh-token',
@@ -187,7 +190,7 @@ test('unsafe Sigma host is rejected before provider or fetch', async () => {
 
 test('vendored browser OAuth runtime matches its recorded canonical digests', () => {
   const expected = {
-    'get_token.py': '1967ece24a8eae8489ac2ee922ec9d26e79e9d5e7b9e63445c1a785768d0d658',
+    'get_token.py': 'f09beab38f8a4bf30e5312d492953c580b73c48582ced674d654240cf0796278',
     'get-token.sh': '9d951f86806d4f835cc8ba45766d7f715f5062bf31981816c252b328122bc76b',
     'browser-login.sh': '64f3d5248e32a59f89765f9e106e238574cd45dbc2460dc6f84a676aab9f8a7e',
     'refresh-token.sh': 'acce747146e6c8eadff609e062811801c0f75eb5211003a6d3ae9f88a353fe46',

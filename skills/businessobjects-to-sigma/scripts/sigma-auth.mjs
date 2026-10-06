@@ -108,6 +108,7 @@ export function runCanonicalTokenProvider({
   workdir,
   env = process.env,
   base,
+  forceRefresh = false,
   providerPath = env.SIGMA_TOKEN_PROVIDER || join(HERE, 'get_token.py'),
 } = {}) {
   if (!workdir) throw new Error('a workdir is required to refresh Sigma authentication');
@@ -115,7 +116,9 @@ export function runCanonicalTokenProvider({
 
   let result = null;
   for (const [command, ...prefix] of pythonCommands(env)) {
-    result = spawnSync(command, [...prefix, providerPath, '--workdir', workdir], {
+    const args = [...prefix, providerPath, '--workdir', workdir];
+    if (forceRefresh) args.push('--force-refresh');
+    result = spawnSync(command, args, {
       encoding: 'utf8',
       env: { ...env, SIGMA_BASE_URL: base },
     });
@@ -179,8 +182,8 @@ export function createSigmaAuthManager({
     return auth;
   }
 
-  function refresh(base) {
-    const refreshed = provider({ workdir, env, base });
+  function refresh(base, forceRefresh) {
+    const refreshed = provider({ workdir, env, base, forceRefresh });
     return publish(normalize(refreshed));
   }
 
@@ -190,8 +193,9 @@ export function createSigmaAuthManager({
       allowInsecure: env.SIGMA_ALLOW_INSECURE_BASE_URL === '1',
       warn,
     });
-    if (forceRefresh || !candidate.token || tokenRefreshDue(candidate.mintedAt, now())) {
-      return refresh(candidate.base);
+    const refreshDue = tokenRefreshDue(candidate.mintedAt, now());
+    if (forceRefresh || !candidate.token || refreshDue) {
+      return refresh(candidate.base, forceRefresh || refreshDue);
     }
     return publish(normalize(candidate));
   }

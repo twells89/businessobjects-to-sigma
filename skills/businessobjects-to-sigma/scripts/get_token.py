@@ -367,7 +367,7 @@ def _cache_access_token(backend, token, minted_at, expiry):
     return _kc_set(backend, "access-expiry", str(expiry))
 
 
-def _mint_browser_refresh(base, now=None):
+def _mint_browser_refresh(base, now=None, force_refresh=False):
     """Return a browser TokenResult or raise BrowserUnavailable."""
     backend = _keychain_backend()
     if backend is None:
@@ -386,7 +386,12 @@ def _mint_browser_refresh(base, now=None):
     now_epoch = int(now_value)
     cached = _kc_get(backend, "access-token")
     expiry = _kc_get(backend, "access-expiry")
-    if cached and expiry.isdigit() and int(expiry) > now_epoch:
+    if (
+        not force_refresh
+        and cached
+        and expiry.isdigit()
+        and int(expiry) > now_epoch
+    ):
         token = _validate_access_token(cached)
         minted_at = _validate_minted_at(
             _kc_get(backend, "access-minted-at"), now_value
@@ -468,7 +473,7 @@ def _resolve_auth_mode(cli_mode=None):
     return mode
 
 
-def mint_token(auth_mode=None):
+def mint_token(auth_mode=None, force_refresh=False):
     _load_neutral_env()
     base_value = os.environ.get("SIGMA_BASE_URL")
     if not base_value:
@@ -480,7 +485,7 @@ def mint_token(auth_mode=None):
 
     if mode in ("auto", "browser"):
         try:
-            result = _mint_browser_refresh(base)
+            result = _mint_browser_refresh(base, force_refresh=force_refresh)
         except SecurityError:
             raise
         except BrowserUnavailable as exc:
@@ -577,10 +582,15 @@ def main(argv=None):
         choices=AUTH_MODES,
         help="override SIGMA_AUTH_MODE (auto, browser, client-credentials)",
     )
+    parser.add_argument(
+        "--force-refresh",
+        action="store_true",
+        help="bypass a cached browser access token",
+    )
     args = parser.parse_args(argv)
 
     try:
-        result = mint_token(args.auth_mode)
+        result = mint_token(args.auth_mode, force_refresh=args.force_refresh)
         wrote = False
         if args.workdir:
             auth_path = _write_auth_json(args.workdir, result)
