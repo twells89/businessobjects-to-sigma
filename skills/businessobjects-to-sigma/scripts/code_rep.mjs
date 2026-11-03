@@ -256,7 +256,7 @@ export function wrap(doc, extra = {}) {
 
 /**
  * Turn a converter / probe workbook (flat OR already-wrapped) into the live
- * wire body for POST /v2/workbooks/spec:
+ * local body (createBody() re-keys `document` to `contents` for POST /v2/workbooks):
  *   { name, folderId, description?, document: { schemaVersion, kind, pages, elements, layout, … } }
  *
  * - Ensures `document.kind === "workbook"` (required since 2026-08-08).
