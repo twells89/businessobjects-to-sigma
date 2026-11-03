@@ -24,8 +24,13 @@ import {
 } from './sigma-auth.mjs';
 import {
   canonicalizeLayout,
+  createBody,
+  createPath,
   document as workbookDocument,
+  dryRunResult,
   prepareWorkbookForPost,
+  readPath,
+  withDocument,
   workbookElements,
   workbookPageElementIds,
 } from './code_rep.mjs';
@@ -116,7 +121,12 @@ async function req(method, path, body, asText = false) {
     body: body == null ? undefined : JSON.stringify(body),
   });
   const txt = await res.text();
-  if (!res.ok) throw new Error(`${method} ${path} → HTTP ${res.status} ${txt.slice(0, 400)}`);
+  if (!res.ok) {
+    const err = new Error(`${method} ${path} → HTTP ${res.status} ${txt.slice(0, 400)}`);
+    err.status = res.status;
+    err.responseText = txt;
+    throw err;
+  }
   if (asText) return txt;
   try { return JSON.parse(txt); } catch { return txt; }
 }
@@ -125,6 +135,40 @@ async function req(method, path, body, asText = false) {
 // in one place so auth/error handling stays identical across DMs, workbooks,
 // and pixel-perfect reports.
 export { req as sigmaRequest };
+
+/**
+ * Dry-run a prepared create body (`POST <collection>` with `dryRun: true`) →
+ * `{ valid, errors, warnings }`. An invalid body is an HTTP 400 that carries
+ * the errors; any other failure is rethrown. `type` is 'workbook' or 'report'.
+ */
+export async function dryRunCreate(prepared, type = 'workbook') {
+  try {
+    const res = await req('POST', createPath(type), createBody(prepared, { dryRun: true }));
+    return dryRunResult(200, res);
+  } catch (err) {
+    if (err.status === 400) {
+      let parsed = null;
+      try { parsed = JSON.parse(err.responseText); } catch { /* not a dry-run body */ }
+      if (Array.isArray(parsed?.errors)) return dryRunResult(400, parsed);
+    }
+    throw err;
+  }
+}
+
+/**
+ * Read a workbook or report code representation (`?includeContents=true`),
+ * re-keyed to the local `document` wrapper. The read no longer returns
+ * `folderId`, so it is restored from the file record's `parentId` (best effort).
+ */
+export async function readCodeRep(id, type = 'workbook') {
+  const response = await req('GET', readPath(id, type));
+  if (response?.folderId != null) return withDocument(response);
+  let folderId;
+  try {
+    folderId = (await req('GET', `/v2/files/${id}`))?.parentId;
+  } catch { /* the folder is only needed to compare create metadata */ }
+  return withDocument(response, { folderId });
+}
 
 /** POST a data model spec → { dataModelId }. */
 export async function postDataModel(model, folderId = process.env.SIGMA_FOLDER_ID) {
@@ -167,29 +211,23 @@ export async function postDataModelSpec(dataModelId, spec) {
   return req('PUT', `/v2/dataModels/${dataModelId}/spec`, { schemaVersion, pages });
 }
 
-/** Read the current workbook schemaVersion from any reference workbook (spec is YAML). */
+/** Read the current workbook schemaVersion from any reference workbook. */
 export async function referenceWorkbookSchemaVersion() {
   const list = await req('GET', '/v2/workbooks?limit=1');
   const wbId = list.entries?.[0]?.workbookId || list.entries?.[0]?.id;
   if (!wbId) return 1;
-  const yaml = await req('GET', `/v2/workbooks/${wbId}/spec`, null, true);
-  // Live GETs nest schemaVersion under `document:` (code-rep wrapper, 2026-08).
-  // Prefer the document-scoped value; fall back to any schemaVersion match.
-  const underDoc = yaml.match(/document:\s*\n(?:[ \t]+.+\n)*?[ \t]+schemaVersion:\s*(\d+)/)
-    || yaml.match(/document:[\s\S]*?schemaVersion:\s*(\d+)/);
-  const m = underDoc || yaml.match(/schemaVersion:\s*(\d+)/);
-  return m ? Number(m[1]) : 1;
+  const wb = await req('GET', readPath(wbId, 'workbook'));
+  return Number(workbookDocument(wb).schemaVersion ?? 1);
 }
 
-/** POST a workbook create envelope to the non-persistent verifier. */
+/** Dry-run a workbook create (`POST /v2/workbooks` with `dryRun: true`) → `{ valid, errors, warnings }`. */
 export async function verifyWorkbook(workbook) {
-  const body = prepareWorkbookForPost(workbook);
-  return req('POST', '/v2/workbooks/spec/verify', body);
+  return dryRunCreate(prepareWorkbookForPost(workbook), 'workbook');
 }
 
-/** GET a workbook code representation as JSON. */
+/** GET a workbook code representation as JSON (document under `document`, see readCodeRep). */
 export async function getWorkbookSpec(workbookId) {
-  return req('GET', `/v2/workbooks/${workbookId}/spec?format=json`);
+  return readCodeRep(workbookId, 'workbook');
 }
 
 export function workbookIdFromResult(result) {
@@ -213,12 +251,12 @@ export function workbookIdFromResult(result) {
 export async function postWorkbook(workbook, { verify = false } = {}) {
   const body = prepareWorkbookForPost(workbook);
   if (verify) {
-    const verified = await req('POST', '/v2/workbooks/spec/verify', body);
+    const verified = await dryRunCreate(body, 'workbook');
     if (verified?.valid === false) {
       throw new Error(`Sigma workbook verify rejected the spec: ${JSON.stringify(verified).slice(0, 1000)}`);
     }
   }
-  const txt = await req('POST', '/v2/workbooks/spec', body, true);
+  const txt = await req('POST', createPath('workbook'), createBody(body), true);
   try {
     return workbookIdFromResult(JSON.parse(txt));
   } catch {

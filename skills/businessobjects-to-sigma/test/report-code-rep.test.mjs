@@ -121,6 +121,12 @@ check(
   'comparison normalization accepts Sigma canonical readback rewrites',
 );
 
+check(
+  reportDocument({ reportId: 'r1', latestVersion: 2, contents: report.document }).kind === 'report'
+    && !('contents' in reportMetadata({ reportId: 'r1', contents: report.document })),
+  'report helpers read the `contents` of a GET ?includeContents=true response',
+);
+
 console.log(failures ? `\n❌ ${failures} report code-rep check(s) failed` : '\n✅ all report code-rep checks passed');
 process.exit(failures ? 1 : 0);
 

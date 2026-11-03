@@ -46,7 +46,7 @@ check(r.dataModelAdditions.columns.every(c => !/Order Fact View\//.test(c.formul
 // qualified formula (re-aggregating the raw View columns, exactly like a base
 // measure), NOT the metric by column-path: a DM metric is NOT addressable as
 // [Element/MetricName] from a workbook (live-verified in Task 8 — POST
-// /v2/workbooks/spec 400s "Dependency not found: 'order fact view/margin
+// /v2/workbooks 400s "Dependency not found: 'order fact view/margin
 // pct'"); the raw View columns it re-aggregates DO resolve. The metric itself
 // still lands in the DM (governance/reuse) via dataModelAdditions.metrics, BARE.
 const mcol = cols.find(c => c.name === 'Margin Pct');

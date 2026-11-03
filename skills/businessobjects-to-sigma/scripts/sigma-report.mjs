@@ -1,10 +1,11 @@
 /**
  * Sigma pixel-perfect Report lifecycle helpers.
  *
- * Report code rep is JSON:
- *   create/verify: { name, folderId, document }
- *   update:        { document }
- * where document.kind === "report" and layout is absolute-pixel XML.
+ * Report code rep is JSON. Locally a report is `{ name, folderId, document }`;
+ * on the wire (POST /v2/reports, dry run with `dryRun: true`, PUT
+ * /v2/reports/{id}/contents) the document travels as `contents`. Reads use
+ * GET /v2/reports/{id}?includeContents=true. document.kind === "report" and
+ * layout is absolute-pixel XML.
  */
 
 import { writeFileSync } from 'node:fs';
@@ -17,11 +18,15 @@ import {
   validateReportSpec,
 } from './report-code-rep.mjs';
 import {
+  createBody,
+  createPath,
   prepareWorkbookForPost,
+  updateBody,
+  updatePath,
   workbookElements,
   workbookPageElementIds,
 } from './code_rep.mjs';
-import { sigmaFetch, sigmaRequest } from './sigma.mjs';
+import { dryRunCreate, readCodeRep, sigmaFetch, sigmaRequest } from './sigma.mjs';
 
 export async function referenceReportSchemaVersion() {
   const list = await sigmaRequest('GET', '/v2/reports?limit=1');
@@ -38,7 +43,7 @@ export async function verifyReport(report) {
   if (!offline.valid) {
     throw new Error(`Report offline validation failed: ${offline.errors.join('; ')}`);
   }
-  return sigmaRequest('POST', '/v2/reports/spec/verify', body);
+  return dryRunCreate(body, 'report');
 }
 
 export async function postReport(report, { verify = true } = {}) {
@@ -48,12 +53,12 @@ export async function postReport(report, { verify = true } = {}) {
     throw new Error(`Report offline validation failed: ${offline.errors.join('; ')}`);
   }
   if (verify) {
-    const result = await sigmaRequest('POST', '/v2/reports/spec/verify', body);
+    const result = await dryRunCreate(body, 'report');
     if (result?.valid === false) {
       throw new Error(`Sigma report verify rejected the spec: ${JSON.stringify(result).slice(0, 1000)}`);
     }
   }
-  const result = await sigmaRequest('POST', '/v2/reports/spec', body);
+  const result = await sigmaRequest('POST', createPath('report'), createBody(body));
   return {
     reportId: reportIdFromResult(result),
     result,
@@ -392,7 +397,7 @@ export function reportIdFromResult(result) {
 }
 
 export async function getReportSpec(reportId) {
-  return sigmaRequest('GET', `/v2/reports/${reportId}/spec?format=json`);
+  return readCodeRep(reportId, 'report');
 }
 
 export async function putReportSpec(reportId, spec) {
@@ -401,7 +406,7 @@ export async function putReportSpec(reportId, spec) {
   if (!offline.valid) {
     throw new Error(`Report update validation failed: ${offline.errors.join('; ')}`);
   }
-  return sigmaRequest('PUT', `/v2/reports/${reportId}/spec`, body);
+  return sigmaRequest('PUT', updatePath(reportId, 'report'), updateBody(body));
 }
 
 export async function getReportInventory(reportId) {

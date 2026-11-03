@@ -1,6 +1,16 @@
 /**
- * Shape adapter for the Sigma WORKBOOK code representation
- * (POST /v2/workbooks/spec, GET|PUT /v2/workbooks/{id}/spec, POST /v2/workbooks/spec/verify).
+ * Shape adapter for the Sigma WORKBOOK code representation.
+ *
+ * ENDPOINTS (OpenAPI 2.0.0+20261030, live-verified 2026-11-03): the /spec
+ * workbook and report endpoints are DEPRECATED. The replacements carry the same
+ * document under `contents` instead of `document`:
+ *   create / dry-run  POST /v2/workbooks  (dry run = `dryRun: true`)
+ *   read              GET  /v2/workbooks/{id}?includeContents=true
+ *   update            PUT  /v2/workbooks/{id}/contents
+ * (reports: the same under /v2/reports). Build paths and bodies with the
+ * endpoint helpers at the bottom of this file. Local artifacts and the
+ * prepare*ForPost output keep the `document` wrapper; `createBody` /
+ * `updateBody` re-key it at the API boundary and `document()` reads either.
  *
  * Verified live 2026-08-03/04 (sigma-skills / sigma-migration-skills): this surface
  * nests non-metadata fields under a top-level `document` key and REJECTS the old
@@ -28,8 +38,9 @@ const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 export function document(response) {
   if (!isObj(response)) return {};
-  const doc = isObj(response.document)
-    ? response.document
+  const inner = isObj(response.contents) ? response.contents : response.document;
+  const doc = isObj(inner)
+    ? inner
     : Object.fromEntries(Object.entries(response).filter(([k]) => DOC_KEYS.includes(k)));
   return foldLegacyTheme(doc, response);
 }
@@ -77,7 +88,8 @@ export function metadata(response) {
   if (!isObj(response)) return {};
   return Object.fromEntries(
     Object.entries(response).filter(
-      ([k]) => k !== 'document' && !DOC_KEYS.includes(k) && !LEGACY_THEME_KEYS.includes(k),
+      ([k]) => k !== 'document' && k !== 'contents' && !DOC_KEYS.includes(k)
+        && !LEGACY_THEME_KEYS.includes(k),
     ),
   );
 }
@@ -244,7 +256,7 @@ export function wrap(doc, extra = {}) {
 
 /**
  * Turn a converter / probe workbook (flat OR already-wrapped) into the live
- * wire body for POST /v2/workbooks/spec:
+ * local body (createBody() re-keys `document` to `contents` for POST /v2/workbooks):
  *   { name, folderId, description?, document: { schemaVersion, kind, pages, elements, layout, … } }
  *
  * - Ensures `document.kind === "workbook"` (required since 2026-08-08).
@@ -280,4 +292,81 @@ export function prepareWorkbookForPost(workbook) {
   if (!Array.isArray(flat.pages)) flat.pages = [];
 
   return wrap(flat, outer);
+}
+
+// ---- Endpoint helpers -----------------------------------------------------
+// `type` is 'workbook' or 'report'. Paths are relative to SIGMA_BASE_URL.
+// Reports share these paths and the contents/document re-keying only; their
+// layout semantics live in report-code-rep.mjs.
+
+function collectionPath(type) {
+  if (type === 'workbook') return '/v2/workbooks';
+  if (type === 'report') return '/v2/reports';
+  throw new Error(`unknown code-rep type ${JSON.stringify(type)} (want 'workbook' or 'report')`);
+}
+
+/** POST target for create and for dry-run validation. */
+export function createPath(type = 'workbook') {
+  return collectionPath(type);
+}
+
+/** GET that returns the envelope plus `contents` and `documentVersion`. */
+export function readPath(id, type = 'workbook') {
+  return `${collectionPath(type)}/${id}?includeContents=true`;
+}
+
+/** PUT target that replaces an existing document. */
+export function updatePath(id, type = 'workbook') {
+  return `${collectionPath(type)}/${id}/contents`;
+}
+
+const CREATE_METADATA_KEYS = ['name', 'folderId', 'description'];
+
+/**
+ * Wire body for create (or dry run) from a prepared `{ name, folderId,
+ * description?, document }` body: the document goes out as `contents`.
+ */
+export function createBody(prepared, { dryRun = false } = {}) {
+  const body = Object.fromEntries(
+    Object.entries(isObj(prepared) ? prepared : {})
+      .filter(([k]) => CREATE_METADATA_KEYS.includes(k)),
+  );
+  body.contents = document(prepared);
+  if (dryRun) body.dryRun = true;
+  return body;
+}
+
+/** Wire body for PUT /contents. Pass the documentVersion you read to guard against stale writes. */
+export function updateBody(spec, { documentVersion = null } = {}) {
+  const body = { contents: document(spec) };
+  if (documentVersion !== null && documentVersion !== undefined) body.documentVersion = documentVersion;
+  return body;
+}
+
+/**
+ * Normalize a dry-run response to `{ valid, errors, warnings }`. Success is
+ * HTTP 200 with no `valid` key; a schema failure is HTTP 400 with
+ * `valid: false` and `errors`; any other 4xx carries only `{ message, code }`.
+ */
+export function dryRunResult(status, body) {
+  const b = isObj(body) ? body : {};
+  const warnings = Array.isArray(b.warnings) ? b.warnings : [];
+  if (status >= 200 && status <= 299) return { valid: true, errors: [], warnings };
+  const errors = Array.isArray(b.errors) && b.errors.length
+    ? b.errors
+    : [{ summary: b.message || `HTTP ${status}` }];
+  return { valid: false, errors, warnings };
+}
+
+/**
+ * Re-key a read response (`contents`) to the local `document` wrapper and put
+ * back the `folderId` the read no longer returns (take it from
+ * GET /v2/files/{id} `parentId`).
+ */
+export function withDocument(response, { folderId } = {}) {
+  if (!isObj(response) || !isObj(response.contents)) return response;
+  const { contents, ...rest } = response;
+  const out = { ...rest, document: contents };
+  if (folderId && out.folderId == null) out.folderId = folderId;
+  return out;
 }

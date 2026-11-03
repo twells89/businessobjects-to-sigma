@@ -1,12 +1,13 @@
 /**
  * Offline unit tests for scripts/code_rep.mjs — the workbook code-rep adapter
- * that makes POST /v2/workbooks/spec accept converter output after the 2026-08
+ * that makes POST /v2/workbooks accept converter output after the 2026-08
  * document-wrapper change.
  */
 import {
   document, metadata, workbookElements, wrap,
   stackedLayout, prepareWorkbookForPost, canonicalizeLayout,
   setTheme, theme, workbookElementsWithPages, workbookPageElementIds,
+  createPath, readPath, updatePath, createBody, updateBody, dryRunResult, withDocument,
 } from '../scripts/code_rep.mjs';
 
 let failures = 0;
@@ -141,6 +142,46 @@ check(
     .filter(([item, page]) => ['text', 'tabs'].includes(item.id) && page?.id === 'p').length === 2,
   'workbookElementsWithPages() associates flat elements with page metadata',
 );
+
+// ---- Endpoint helpers (the /spec endpoints are deprecated) ----
+check(createPath() === '/v2/workbooks' && createPath('report') === '/v2/reports', 'createPath() is the collection');
+check(readPath('w1') === '/v2/workbooks/w1?includeContents=true', 'readPath() asks for contents');
+check(readPath('r1', 'report') === '/v2/reports/r1?includeContents=true', 'readPath() covers reports');
+check(updatePath('w1') === '/v2/workbooks/w1/contents', 'updatePath() targets /contents');
+let badType = '';
+try { createPath('dataModel'); } catch (e) { badType = e.message; }
+check(badType.includes('unknown code-rep type'), 'path helpers refuse data-model types');
+
+const prepared = prepareWorkbookForPost(nested);
+const wire = createBody(prepared);
+check(
+  wire.name === 'Sales' && wire.folderId === 'folder-1'
+    && wire.contents.kind === 'workbook' && !('document' in wire) && !('dryRun' in wire),
+  'createBody() re-keys document to contents',
+);
+check(createBody(prepared, { dryRun: true }).dryRun === true, 'createBody({ dryRun }) sets dryRun');
+check(
+  updateBody(prepared, { documentVersion: 4 }).documentVersion === 4
+    && updateBody(prepared).contents.kind === 'workbook'
+    && !('documentVersion' in updateBody(prepared)),
+  'updateBody() carries contents and an optional documentVersion',
+);
+const readback = {
+  workbookId: 'w1', name: 'N', latestVersion: 2, documentVersion: 2, path: 'Folder',
+  contents: { schemaVersion: 1, kind: 'workbook', pages: [{ id: 'p' }], elements: [{ id: 'e1', kind: 'table' }], layout: '' },
+};
+check(document(readback).elements[0].id === 'e1', 'document() reads `contents`');
+check(!('contents' in metadata(readback)) && metadata(readback).workbookId === 'w1', 'metadata() leaves contents out');
+const rekeyed = withDocument(readback, { folderId: 'f9' });
+check(
+  rekeyed.folderId === 'f9' && rekeyed.document.kind === 'workbook' && !('contents' in rekeyed),
+  'withDocument() re-keys contents and restores folderId',
+);
+check(withDocument({ document: { kind: 'workbook' } }) !== null && withDocument({ document: {} }).document, 'withDocument() passes a /spec-era response through');
+check(dryRunResult(200, { dryRun: true, warnings: [{ m: 1 }] }).valid === true, 'dryRunResult(200) is valid');
+const bad = dryRunResult(400, { valid: false, errors: [{ summary: 'x' }] });
+check(bad.valid === false && bad.errors[0].summary === 'x', 'dryRunResult(400) keeps the errors');
+check(dryRunResult(403, { message: 'nope', code: 'c' }).errors[0].summary === 'nope', 'dryRunResult(other 4xx) uses the message');
 
 console.log(failures ? `\n❌ ${failures} check(s) failed` : '\n✅ all code_rep checks passed');
 process.exit(failures ? 1 : 0);
