@@ -23,6 +23,7 @@ import {
   postWorkbook, deleteFile, referenceWorkbookSchemaVersion,
   sigmaFetch, SIGMA_BASE,
 } from './sigma.mjs';
+import { readPath } from './code_rep.mjs';
 import { convertBobjToSigma } from '../converters/bobj.mjs';
 import { convertWebiToWorkbook } from '../converters/webi.mjs';
 import { mergeAdditionsIntoView } from './dm-merge.mjs';
@@ -39,10 +40,10 @@ const created = { dataModelId: null, workbookIds: [] };
 
 // ── Minimal REST helpers this harness needs beyond scripts/sigma.mjs ────────
 
-async function sigmaGet(path) {
+async function sigmaGet(path, init = {}) {
   let res, txt;
   try {
-    res = await sigmaFetch(path);
+    res = await sigmaFetch(path, init);
     txt = await res.text();
   } catch (e) {
     // Pre/mid-response failure (connection refused/reset, DNS, etc.) — no
@@ -56,6 +57,15 @@ async function sigmaGet(path) {
     throw err;
   }
   try { return JSON.parse(txt); } catch { return txt; }
+}
+
+/**
+ * A workbook's code representation as YAML text (`contents:` holds the
+ * document). The read defaults to JSON, so ask for YAML explicitly: the
+ * conditionalFormats checks below scan indentation without a YAML parser.
+ */
+async function sigmaGetWorkbookYaml(workbookId) {
+  return sigmaGet(readPath(workbookId, 'workbook'), { headers: { Accept: 'application/yaml' } });
 }
 
 /** List every element across every page of a workbook (name, elementId, error?). */
@@ -102,7 +112,7 @@ async function queryElementWithRetry(workbookId, elementId, { maxWaitMs = 90000,
 /**
  * "describe": list every element, then pull each element's compiled SQL
  * (GET /v2/workbooks/{id}/elements/{eid}/query) and scan it for Sigma's two
- * documented unresolved-formula error markers — POST /v2/workbooks/spec is
+ * documented unresolved-formula error markers — POST /v2/workbooks is
  * generous and accepts specs whose formulas don't actually resolve; the
  * failure only surfaces as a string literal embedded in the compiled SQL at
  * query time. A column alias containing "--metric-" is a known-benign
@@ -253,7 +263,7 @@ function firstNumber(rows) {
 }
 
 // ── conditionalFormats round-trip helpers ───────────────────────────────────
-// The workbook spec GET returns YAML. We don't ship a YAML parser (zero deps),
+// The workbook code-rep GET returns YAML (Accept: application/yaml). We don't ship a YAML parser (zero deps),
 // so extract just the one `conditionalFormats:` block by indentation and match
 // its scalars. `extractCFBlock` returns the block text (its own line + every
 // more-indented line, stopping at the next same-or-shallower key like `layout:`).
@@ -427,13 +437,13 @@ async function main() {
   // POST intact: target column id + condition + value + BOTH style colors. This
   // is a REAL round-trip against the live API on the actual converter output —
   // never faked. (The converter-emitted shape was already guarded pre-POST.)
-  const wbYaml = await sigmaGet(`/v2/workbooks/${workbookId}/spec`);
+  const wbYaml = await sigmaGetWorkbookYaml(workbookId);
   const wbYamlStr = typeof wbYaml === 'string' ? wbYaml : JSON.stringify(wbYaml);
   // The persisted spec now carries TWO CF elements (summary table + pivot).
   // Select each element's block by its OWN column id rather than "first block"
   // so neither gate can grab the other element's rule (order-independent).
   const cfBlock = cfBlockForColumn(wbYamlStr, netColId);
-  console.log('\nPersisted conditionalFormats block — summary TABLE (GET /v2/workbooks/{id}/spec):\n' + (cfBlock || '(none)'));
+  console.log('\nPersisted conditionalFormats block — summary TABLE (GET /v2/workbooks/{id}?includeContents=true):\n' + (cfBlock || '(none)'));
   check(!!cfBlock, 'CF round-trip: summary table kept a conditionalFormats block in the persisted spec');
   check(cfBlock.includes(netColId), `CF round-trip: rule targets the Net Revenue column id (${netColId})`);
   check(condPresent(cfBlock, '>'), 'CF round-trip: condition ">" persisted verbatim');
@@ -452,7 +462,7 @@ async function main() {
   // style colors. If this does NOT round-trip, the "& pivots" claim is false and
   // must be corrected (converter restricted to tables + SKILL.md fixed).
   const pivBlock = cfBlockForColumn(wbYamlStr, pivotNetId);
-  console.log('\nPersisted conditionalFormats block — PIVOT (GET /v2/workbooks/{id}/spec):\n' + (pivBlock || '(none)'));
+  console.log('\nPersisted conditionalFormats block — PIVOT (GET /v2/workbooks/{id}?includeContents=true):\n' + (pivBlock || '(none)'));
   check(!!pivBlock, 'CF round-trip (pivot): pivot-table kept a conditionalFormats block in the persisted spec');
   check(pivBlock.includes(pivotNetId), `CF round-trip (pivot): rule targets the pivot Net Revenue column id (${pivotNetId})`);
   check(condPresent(pivBlock, '>'), 'CF round-trip (pivot): condition ">" persisted verbatim');
@@ -629,7 +639,7 @@ async function main() {
   // Resolve — and RE-CONFIRM on every run so they can't silently regress — the
   // three open questions the converter's CF mapping depends on. Each is a
   // harness-owned throwaway workbook (NOT converter output): one table over the
-  // View carrying only conditionalFormats. No warehouse query (POST + GET spec).
+  // View carrying only conditionalFormats. No warehouse query (POST + GET code rep).
   const cfProbeWb = (cfs) => ({
     name: `E2E Webi CF Probe ${rnd()}`, folderId: FOLDER_ID, schemaVersion,
     pages: [{ id: `page-${rnd()}`, name: 'P', elements: [{
@@ -644,7 +654,7 @@ async function main() {
     }] }],
   });
   const getCFBlock = async (wbId) => {
-    const y = await sigmaGet(`/v2/workbooks/${wbId}/spec`);
+    const y = await sigmaGetWorkbookYaml(wbId);
     return extractCFBlock(typeof y === 'string' ? y : JSON.stringify(y));
   };
   // Post a probe expected to FAIL (bad condition enum); return the error (or

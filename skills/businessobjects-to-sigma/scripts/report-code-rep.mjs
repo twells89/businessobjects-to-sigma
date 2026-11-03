@@ -1,10 +1,12 @@
 /**
  * Sigma REPORT code-representation adapter and offline validator.
  *
- * Reports and workbooks share a `{ name, folderId, document }` envelope but
- * not layout semantics. Reports require absolute-pixel `<Page>` / `<Panel>`
- * roots and `<Element x y width height>` leaves. Never route reports through
- * scripts/code_rep.mjs (workbook grid layout).
+ * Reports and workbooks share a `{ name, folderId, document }` local envelope
+ * (sent to the API as `contents`, see code_rep.mjs createBody) but not layout
+ * semantics. Reports require absolute-pixel `<Page>` / `<Panel>` roots and
+ * `<Element x y width height>` leaves. Never route report documents through
+ * scripts/code_rep.mjs's workbook prepare/layout code (grid layout); only its
+ * endpoint helpers are shared.
  */
 
 const REPORT_DOC_KEYS = [
@@ -26,6 +28,7 @@ const PROVEN_OR_DOCUMENTED_KINDS = new Set([
 
 export function reportDocument(spec) {
   if (!isObject(spec)) return {};
+  if (isObject(spec.contents)) return spec.contents;
   if (isObject(spec.document)) return spec.document;
   return Object.fromEntries(
     Object.entries(spec).filter(([key]) => REPORT_DOC_KEYS.includes(key)),
@@ -36,7 +39,7 @@ export function reportMetadata(spec) {
   if (!isObject(spec)) return {};
   return Object.fromEntries(
     Object.entries(spec).filter(
-      ([key]) => key !== 'document' && !REPORT_DOC_KEYS.includes(key),
+      ([key]) => key !== 'document' && key !== 'contents' && !REPORT_DOC_KEYS.includes(key),
     ),
   );
 }

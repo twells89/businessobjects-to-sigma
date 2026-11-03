@@ -13,7 +13,8 @@
  * Output: a Sigma workbook spec object. Locally this still nests elements under
  * `pages[].elements` for converter/test convenience; `scripts/sigma.mjs`
  * `postWorkbook` (via `scripts/code_rep.mjs`) flattens + wraps it into the live
- * wire shape before POST /v2/workbooks/spec:
+ * wire shape before POST /v2/workbooks (the `document` below is sent as
+ * `contents`; see code_rep.mjs createBody):
  *   { name, folderId, document: { schemaVersion, kind: "workbook",
  *     pages (metadata only), elements (flat), layout } }
  * A flat pre-2026-08 body hard-400s — never POST the raw converter object.
@@ -290,7 +291,7 @@ export function convertWebiToWorkbook(input, options = {}) {
   // This is what a block column that references the measure must resolve to —
   // NOT the metric by column-path — because a DM metric is NOT addressable as
   // `[Element/MetricName]` from a workbook (live-verified in Task 8: POST
-  // /v2/workbooks/spec 400s "Dependency not found: 'order fact view/margin
+  // /v2/workbooks 400s "Dependency not found: 'order fact view/margin
   // pct'"), whereas the raw columns it re-aggregates DO resolve. The metric
   // still lands in dataModelAdditions.metrics (governance/reuse, per the
   // split-by-kind design), and the workbook stays self-resolving — identical to
@@ -503,7 +504,7 @@ const OTHER_RUNNING_CALCS = [
 // Webi alerter operator → Sigma conditionalFormats `condition`. Symbols pass
 // through; common word forms are mapped. CONFIRMED LIVE (Task 3 E2E, CSA.TJ):
 // Sigma's `single` conditional format accepts `>`, `<`, `>=`, `<=`, `=`, `!=`
-// (each round-trips verbatim through POST → GET /v2/workbooks/{id}/spec). The
+// (each round-trips verbatim through POST → GET /v2/workbooks/{id}?includeContents=true). The
 // not-equal form is `!=`, NOT `<>` — posting `condition: '<>'` is rejected with
 // HTTP 400 ("Invalid kind: table", Sigma's generic unrecognized-enum error), so
 // every not-equal spelling maps to `!=`. `Between`/`NotBetween` are NOT accepted

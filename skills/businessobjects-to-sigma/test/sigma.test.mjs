@@ -135,21 +135,34 @@ const workbookId = '11111111-1111-4111-8111-111111111111';
 globalThis.fetch = async (url, init = {}) => {
   const body = init.body ? JSON.parse(init.body) : null;
   requests.push({ url, method: init.method || 'GET', body });
-  if (url.endsWith('/v2/workbooks/spec/verify')) {
-    return new Response(JSON.stringify({ valid: true }), { status: 200 });
+  if (url.endsWith('/v2/workbooks') && body?.dryRun) {
+    // Valid dry run: HTTP 200, no `valid` key. The marker name forces an invalid one.
+    if (body.name === 'Invalid dry run') {
+      return new Response(JSON.stringify({
+        dryRun: true,
+        valid: false,
+        errors: [{ summary: 'contents.elements[0]: bad' }],
+        warnings: [],
+      }), { status: 400 });
+    }
+    return new Response(JSON.stringify({ dryRun: true, warnings: [], workbookId: null }), { status: 200 });
   }
-  if (url.endsWith('/v2/workbooks/spec')) {
+  if (url.endsWith('/v2/workbooks')) {
     return new Response(JSON.stringify({ workbookId }), { status: 200 });
   }
-  if (url.includes(`/v2/workbooks/${workbookId}/spec?format=json`)) {
+  if (url.includes(`/v2/workbooks/${workbookId}?includeContents=true`)) {
+    // The read returns the document as `contents` and no folderId.
     const submitted = (await import('../scripts/code_rep.mjs')).prepareWorkbookForPost(workbook);
     return new Response(JSON.stringify({
       workbookId,
       name: submitted.name,
-      folderId: submitted.folderId,
       description: submitted.description,
-      document: submitted.document,
+      latestVersion: 1,
+      contents: submitted.document,
     }), { status: 200 });
+  }
+  if (url.endsWith(`/v2/files/${workbookId}`)) {
+    return new Response(JSON.stringify({ id: workbookId, parentId: 'folder' }), { status: 200 });
   }
   if (url.endsWith(`/v2/workbooks/${workbookId}/convertToReport`)) {
     return new Response(JSON.stringify({
@@ -165,21 +178,50 @@ globalThis.fetch = async (url, init = {}) => {
 };
 
 const verified = await sigma.verifyWorkbook(workbook);
-check(verified.valid === true, 'workbook verify response returned');
+check(verified.valid === true, 'workbook dry run normalized to valid');
 const verifyRequest = requests.at(-1);
 check(
-  verifyRequest.body.document.kind === 'workbook'
-    && verifyRequest.body.document.elements[0].id === 'table-1'
-    && !('elements' in verifyRequest.body.document.pages[0]),
-  'workbook verify sends the canonical prepared body',
+  verifyRequest.method === 'POST'
+    && verifyRequest.url.endsWith('/v2/workbooks')
+    && verifyRequest.body.dryRun === true
+    && !('document' in verifyRequest.body)
+    && verifyRequest.body.contents.kind === 'workbook'
+    && verifyRequest.body.contents.elements[0].id === 'table-1'
+    && !('elements' in verifyRequest.body.contents.pages[0]),
+  'workbook dry run sends the canonical prepared body as contents',
 );
+const invalid = await sigma.verifyWorkbook({ ...workbook, name: 'Invalid dry run' });
+check(
+  invalid.valid === false && invalid.errors[0].summary === 'contents.elements[0]: bad',
+  'workbook dry run returns the errors of an HTTP 400',
+);
+let rejected = '';
+try { await sigma.postWorkbook({ ...workbook, name: 'Invalid dry run' }, { verify: true }); } catch (e) { rejected = e.message; }
+check(rejected.includes('verify rejected'), 'postWorkbook({ verify }) throws on an invalid dry run');
 const createdId = await sigma.postWorkbook(workbook);
 check(createdId === workbookId, 'workbook create parses JSON workbookId');
-const readback = await sigma.assertWorkbookReadback(workbookId, workbook);
-check(readback.workbookId === workbookId, 'workbook readback requests and compares JSON spec');
+const createRequest = requests.at(-1);
 check(
-  requests.some(request => request.url.endsWith(`/v2/workbooks/${workbookId}/spec?format=json`)),
-  'workbook readback requests format=json',
+  createRequest.method === 'POST'
+    && createRequest.url.endsWith('/v2/workbooks')
+    && !('dryRun' in createRequest.body)
+    && !('document' in createRequest.body)
+    && createRequest.body.contents.kind === 'workbook',
+  'workbook create posts contents to /v2/workbooks',
+);
+const readback = await sigma.assertWorkbookReadback(workbookId, workbook);
+check(readback.workbookId === workbookId, 'workbook readback requests and compares the code rep');
+check(
+  requests.some(request => request.url.endsWith(`/v2/workbooks/${workbookId}?includeContents=true`)),
+  'workbook readback requests includeContents=true',
+);
+check(
+  readback.folderId === 'folder' && readback.document?.kind === 'workbook' && !('contents' in readback),
+  'workbook readback restores folderId from the file record and re-keys contents to document',
+);
+check(
+  !requests.some(request => /\/spec\b/.test(request.url)),
+  'no deprecated /spec endpoint was called',
 );
 check(
   JSON.stringify(prepared) === JSON.stringify(sigma.normalizeWorkbookForComparison(readback)),
